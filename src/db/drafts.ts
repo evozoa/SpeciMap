@@ -57,6 +57,41 @@ export async function finalizeRecord(input: FinalizeInput): Promise<LocalRecord>
   return record
 }
 
+/** Join note texts, skipping blanks and exact repeats. */
+export function joinNotes(...notes: string[]): string {
+  const parts: string[] = []
+  for (const n of notes.map((n) => n.trim())) {
+    if (n && !parts.includes(n)) parts.push(n)
+  }
+  return parts.join('\n')
+}
+
+/**
+ * Rescanning an already-recorded tag adds to that record instead of making a
+ * second one: the draft's photos move onto it, notes are appended, and its
+ * original capture time and location are kept. The record is requeued so the
+ * new photos and notes upload.
+ */
+export async function appendToRecord(
+  targetId: string,
+  draftId: string,
+  notes: string,
+): Promise<void> {
+  await db.transaction('rw', db.records, db.photos, async () => {
+    const target = await db.records.get(targetId)
+    if (!target) throw new Error('Record to add to no longer exists')
+    await db.photos.where('recordId').equals(draftId).modify({ recordId: targetId })
+    await db.records.update(targetId, {
+      notes: joinNotes(target.notes, notes),
+      status: 'queued',
+      syncStep: 'upsert-specimen',
+      attempts: 0,
+      nextAttemptAt: 0,
+      lastError: null,
+    })
+  })
+}
+
 export async function discardDraft(recordId: string): Promise<void> {
   await db.transaction('rw', db.records, db.photos, async () => {
     await db.photos.where('recordId').equals(recordId).delete()

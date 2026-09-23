@@ -17,7 +17,13 @@ export async function syncAll(): Promise<void> {
   const { data } = await supabase.auth.getSession()
   if (!data.session) return
   try {
-    await mergeRemote(db, await fetchRemoteSpecimens())
+    const syncedBeforeFetch = new Set(
+      await db.records.where('status').equals('synced').primaryKeys(),
+    )
+    await mergeRemote(db, await fetchRemoteSpecimens(), {
+      collectorId: data.session.user.id,
+      syncedBeforeFetch,
+    })
   } catch (err) {
     console.warn('Pulling remote records failed', err)
   }

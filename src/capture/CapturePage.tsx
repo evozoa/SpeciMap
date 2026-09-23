@@ -4,7 +4,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useAuth } from '../auth/AuthProvider'
 import { stashResumeTag } from '../auth/resume'
 import { db } from '../db/schema'
-import { addDraftPhoto, finalizeRecord } from '../db/drafts'
+import { addDraftPhoto, appendToRecord, finalizeRecord } from '../db/drafts'
 import { formatTagId, parseTagId } from '../lib/tagid'
 import LocationPicker, { type LatLng } from '../map/LocationPicker'
 import { syncEngine } from '../sync/triggers'
@@ -40,12 +40,18 @@ export default function CapturePage() {
 
   const geo = useGeoWatch(step === 'camera' || step === 'confirm-tag' || step === 'confirm-blurry')
 
-  // Non-blocking duplicate hint: has this collector already recorded this tag?
-  const existing = useLiveQuery(
-    () => (tagId ? db.records.where('tagId').equals(tagId).toArray() : []),
-    [tagId],
+  // One record per tag: if this collector already recorded it, this capture
+  // adds photos and notes to the earliest such record instead.
+  const userId = session?.user.id
+  const existingRecord = useLiveQuery(
+    async () =>
+      tagId && userId
+        ? (await db.records.where('tagId').equals(tagId).sortBy('capturedAt')).find(
+            (r) => r.collectorId === userId && r.id !== recordId,
+          )
+        : undefined,
+    [tagId, userId, recordId],
   )
-  const priorRecords = (existing ?? []).filter((r) => r.id !== recordId)
 
   const pending = useLiveQuery(
     () => db.records.where('status').anyOf('queued', 'syncing', 'error').count(),
@@ -100,23 +106,27 @@ export default function CapturePage() {
 
   async function save(where: LatLng) {
     if (!tagId || !session) return
-    await finalizeRecord({
-      id: recordId,
-      tagId,
-      collectorId: session.user.id,
-      lat: where.lat,
-      lng: where.lng,
-      gpsAccuracyM: geo.fix?.accuracyM ?? null,
-      locationAdjusted,
-      capturedAt: capturedAtRef.current ?? new Date().toISOString(),
-      notes,
-      focusScore: bestFocus,
-    })
+    if (existingRecord) {
+      await appendToRecord(existingRecord.id, recordId, notes)
+    } else {
+      await finalizeRecord({
+        id: recordId,
+        tagId,
+        collectorId: session.user.id,
+        lat: where.lat,
+        lng: where.lng,
+        gpsAccuracyM: geo.fix?.accuracyM ?? null,
+        locationAdjusted,
+        capturedAt: capturedAtRef.current ?? new Date().toISOString(),
+        notes,
+        focusScore: bestFocus,
+      })
+    }
     setStep('saved')
     setSavedStatus('queued')
     if (navigator.onLine) {
       const summary = await syncEngine.kick()
-      const mine = await db.records.get(recordId)
+      const mine = await db.records.get(existingRecord?.id ?? recordId)
       if (summary.synced > 0 && mine?.status === 'synced') setSavedStatus('synced')
     }
   }
@@ -205,12 +215,11 @@ export default function CapturePage() {
         </span>
       </header>
 
-      {priorRecords.length > 0 && step === 'camera' && (
-        <div className="bg-amber-900/60 px-4 py-2 text-sm text-amber-200">
-          This tag already has {priorRecords.length} record
-          {priorRecords.length > 1 ? 's' : ''} on this device — you are adding
-          another.{' '}
-          <Link className="underline" to={`/record/${priorRecords[0].id}`}>
+      {existingRecord && step === 'camera' && (
+        <div className="bg-sky-900/60 px-4 py-2 text-sm text-sky-200">
+          This tag is already recorded — new photos will be added to that
+          record.{' '}
+          <Link className="underline" to={`/record/${existingRecord.id}`}>
             View
           </Link>
         </div>
@@ -287,7 +296,31 @@ export default function CapturePage() {
         </div>
       )}
 
-      {step === 'location' && (
+      {step === 'location' && existingRecord && (
+        <div className="flex flex-1 flex-col justify-center gap-3 p-4">
+          <p className="text-center text-sm text-slate-400">
+            Adding {photos.length} photo{photos.length > 1 ? 's' : ''} to the
+            record from {new Date(existingRecord.capturedAt).toLocaleString()}.
+            Its original time and location are kept.
+          </p>
+          <input
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Notes to add (optional)"
+            className="rounded-lg border border-slate-700 bg-slate-900 px-4 py-3"
+          />
+          <button
+            onClick={() =>
+              void save({ lat: existingRecord.lat, lng: existingRecord.lng })
+            }
+            className="rounded-lg bg-emerald-600 px-4 py-3 font-semibold"
+          >
+            Add to record
+          </button>
+        </div>
+      )}
+
+      {step === 'location' && !existingRecord && (
         <div className="flex flex-1 flex-col">
           {(() => {
             const value = location ??

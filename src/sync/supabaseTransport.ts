@@ -82,14 +82,25 @@ export const supabaseTransport: SyncTransport = {
   },
 }
 
-/** Fetch the signed-in collector's specimens (RLS scopes to their own). */
+const PAGE_SIZE = 1000
+
+/**
+ * Fetch every specimen of the signed-in collector (RLS scopes to their own).
+ * Paged, because the pull deletes synced local records missing from this
+ * list: it must be complete, never a server-capped first page.
+ */
 export async function fetchRemoteSpecimens(): Promise<RemoteSpecimen[]> {
-  const { data, error } = await supabase
-    .from('specimens')
-    .select(
-      'id, tag_id, collector_id, lat, lng, gps_accuracy_m, location_adjusted, captured_at, notes, focus_score, client_meta, specimen_photos (id, storage_path, width, height, bytes)',
-    )
-    .order('captured_at', { ascending: false })
-  if (error) throw new Error(error.message)
-  return data as RemoteSpecimen[]
+  const all: RemoteSpecimen[] = []
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from('specimens')
+      .select(
+        'id, tag_id, collector_id, lat, lng, gps_accuracy_m, location_adjusted, captured_at, notes, focus_score, client_meta, specimen_photos (id, storage_path, width, height, bytes)',
+      )
+      .order('id')
+      .range(from, from + PAGE_SIZE - 1)
+    if (error) throw new Error(error.message)
+    all.push(...(data as RemoteSpecimen[]))
+    if (data.length < PAGE_SIZE) return all
+  }
 }

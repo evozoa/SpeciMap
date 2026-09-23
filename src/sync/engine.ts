@@ -133,6 +133,22 @@ export class SyncEngine {
         step = nextStep(step)
         await this.db.records.update(record.id, { syncStep: step })
       }
+      // Photos may have been added (a rescan) while this record was mid-sync;
+      // its snapshot is stale, so run it again from the specimen step.
+      const unsent = await this.db.photos
+        .where('recordId')
+        .equals(record.id)
+        .filter((p) => !p.uploaded)
+        .count()
+      if (unsent > 0) {
+        await this.db.records.update(record.id, {
+          status: 'queued',
+          syncStep: 'upsert-specimen',
+          nextAttemptAt: 0,
+        })
+        this.rerunRequested = true
+        return 'retried'
+      }
       await this.db.records.update(record.id, {
         status: 'synced',
         lastError: null,

@@ -278,4 +278,24 @@ describe('SyncEngine', () => {
     expect(stored?.syncStep).toBe('upload-photos')
     expect(stored?.lastError).toContain('Timed out')
   })
+
+  it('re-runs a record that gained photos while it was syncing', async () => {
+    const record = makeRecord()
+    await db.records.add(record)
+    await addPhoto(db, record.id)
+
+    const { transport, calls } = makeTransport()
+    let late: string | null = null
+    const upsertPhotoRow = transport.upsertPhotoRow
+    transport.upsertPhotoRow = async (r, p) => {
+      // A rescan appends a photo mid-sync.
+      late ??= await addPhoto(db, record.id)
+      await upsertPhotoRow(r, p)
+    }
+    await new SyncEngine(db, transport).kick()
+
+    expect(calls.uploadPhoto).toContain(late)
+    expect((await db.records.get(record.id))?.status).toBe('synced')
+    expect((await db.photos.get(late!))?.uploaded).toBe(1)
+  })
 })
