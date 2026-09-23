@@ -54,4 +54,14 @@ describe('mergeRemote', () => {
     expect(await mergeRemote(db, [{ ...s, notes: 'server' }])).toBe(0)
     expect(await db.records.get(s.id)).toMatchObject({ status: 'queued', notes: 'local edit' })
   })
+
+  it('adds photos that reach the server after the record was pulled', async () => {
+    const db = new SpeciMapDB(`pull-${++dbCounter}`)
+    const s = remote({ specimen_photos: [] })
+    await mergeRemote(db, [s])
+    expect(await db.photos.count()).toBe(0)
+
+    await mergeRemote(db, [remote({ id: s.id })])
+    expect(await db.photos.where('recordId').equals(s.id).count()).toBe(1)
+  })
 })

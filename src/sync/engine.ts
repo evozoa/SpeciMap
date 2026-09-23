@@ -30,6 +30,8 @@ export interface SyncOptions {
   baseDelayMs?: number
   /** Backoff cap in ms. */
   maxDelayMs?: number
+  /** A step that has not settled after this long counts as a transient failure. */
+  stepTimeoutMs?: number
   now?: () => number
 }
 
@@ -101,6 +103,12 @@ export class SyncEngine {
   private async pass(): Promise<SyncSummary> {
     const now = this.opts.now ?? Date.now
     const summary: SyncSummary = { synced: 0, retried: 0, failed: 0 }
+    // Nothing is mid-sync between passes, so any 'syncing' row was orphaned
+    // by the app being closed or suspended mid-upload. Resume it now.
+    await this.db.records
+      .where('status')
+      .equals('syncing')
+      .modify({ status: 'queued', nextAttemptAt: 0 })
     const due = await this.db.records
       .where('status')
       .anyOf('queued', 'error')
@@ -121,7 +129,7 @@ export class SyncEngine {
     let step = record.syncStep
     try {
       while (step !== 'done') {
-        await this.runStep(record, step)
+        await this.withTimeout(this.runStep(record, step), step)
         step = nextStep(step)
         await this.db.records.update(record.id, { syncStep: step })
       }
@@ -153,6 +161,19 @@ export class SyncEngine {
       })
       return 'retried'
     }
+  }
+
+  /**
+   * Stalled requests (flaky field connections) must not wedge the
+   * single-flight loop. Abandoning one is safe: every step is idempotent.
+   */
+  private withTimeout<T>(work: Promise<T>, step: SyncStep): Promise<T> {
+    const ms = this.opts.stepTimeoutMs ?? 120_000
+    let timer: ReturnType<typeof setTimeout>
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`Timed out during ${step}`)), ms)
+    })
+    return Promise.race([work, timeout]).finally(() => clearTimeout(timer))
   }
 
   private async runStep(record: LocalRecord, step: SyncStep): Promise<void> {

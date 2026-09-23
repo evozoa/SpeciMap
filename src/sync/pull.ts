@@ -2,7 +2,9 @@
  * Pull direction of sync: mirrors the signed-in collector's server records
  * into Dexie so records captured on another device (e.g. the phone) show up
  * here too. Local rows always win — a record already on this device is never
- * overwritten, so unsynced edits and queued uploads are untouched.
+ * overwritten, so unsynced edits and queued uploads are untouched. Photos are
+ * merged by id for every record, since they can reach the server after the
+ * specimen row did.
  *
  * Pulled photos carry only their storage path; images are fetched on demand
  * through signed URLs rather than downloaded in bulk.
@@ -32,7 +34,7 @@ export interface RemoteSpecimen {
   specimen_photos: RemotePhoto[]
 }
 
-/** Insert server specimens missing locally. Returns how many were added. */
+/** Insert server specimens and photos missing locally. Returns records added. */
 export async function mergeRemote(
   db: SpeciMapDB,
   specimens: RemoteSpecimen[],
@@ -59,18 +61,22 @@ export async function mergeRemote(
       lastError: null,
       clientMeta: s.client_meta ?? {},
     }))
-    const photos: LocalPhoto[] = missing.flatMap((s) =>
-      s.specimen_photos.map((p) => ({
+    const remotePhotos = specimens.flatMap((s) =>
+      s.specimen_photos.map((p) => ({ specimenId: s.id, p })),
+    )
+    const localPhotos = await db.photos.bulkGet(remotePhotos.map(({ p }) => p.id))
+    const photos: LocalPhoto[] = remotePhotos
+      .filter((_, i) => !localPhotos[i])
+      .map(({ specimenId, p }) => ({
         id: p.id,
-        recordId: s.id,
+        recordId: specimenId,
         blob: null,
         storagePath: p.storage_path,
         width: p.width ?? 0,
         height: p.height ?? 0,
         bytes: p.bytes ?? 0,
         uploaded: 1 as const,
-      })),
-    )
+      }))
 
     await db.records.bulkPut(records)
     await db.photos.bulkPut(photos)

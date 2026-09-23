@@ -248,4 +248,34 @@ describe('SyncEngine', () => {
     await Promise.all([engine.kick(), engine.kick(), engine.kick()])
     expect(calls.upsertSpecimen).toHaveLength(1)
   })
+
+  it('resumes records orphaned in syncing by an app shutdown', async () => {
+    const record = makeRecord({ status: 'syncing', syncStep: 'upload-photos' })
+    await db.records.add(record)
+    await addPhoto(db, record.id)
+
+    const { transport, calls } = makeTransport()
+    const summary = await new SyncEngine(db, transport).kick()
+
+    expect(summary).toEqual({ synced: 1, retried: 0, failed: 0 })
+    expect(calls.ensureTag).toEqual([])
+    expect(calls.uploadPhoto).toHaveLength(1)
+    expect((await db.records.get(record.id))?.status).toBe('synced')
+  })
+
+  it('treats a stalled step as a transient failure', async () => {
+    const record = makeRecord()
+    await db.records.add(record)
+    await addPhoto(db, record.id)
+
+    const { transport } = makeTransport()
+    transport.uploadPhoto = () => new Promise(() => {})
+    const engine = new SyncEngine(db, transport, { stepTimeoutMs: 20 })
+
+    expect(await engine.kick()).toEqual({ synced: 0, retried: 1, failed: 0 })
+    const stored = await db.records.get(record.id)
+    expect(stored?.status).toBe('queued')
+    expect(stored?.syncStep).toBe('upload-photos')
+    expect(stored?.lastError).toContain('Timed out')
+  })
 })
