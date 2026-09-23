@@ -42,7 +42,10 @@ export interface LocalPhoto {
   /** Client-generated UUID; the photo PK on the server. */
   id: string
   recordId: string
-  blob: Blob
+  /** Null for photos pulled from the server; displayed via `storagePath`. */
+  blob: Blob | null
+  /** Storage path of a server-only photo (records captured on another device). */
+  storagePath?: string
   width: number
   height: number
   bytes: number

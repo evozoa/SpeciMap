@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useAuth } from '../auth/AuthProvider'
 import { db, type LocalRecord } from '../db/schema'
+import { usePhotoUrl } from '../lib/photoUrl'
 import { formatTagId } from '../lib/tagid'
-import { syncEngine } from '../sync/triggers'
+import { syncAll } from '../sync/triggers'
 
 const STATUS_CHIP: Record<LocalRecord['status'], { label: string; cls: string }> = {
   draft: { label: 'Draft', cls: 'bg-slate-600' },
@@ -15,23 +16,11 @@ const STATUS_CHIP: Record<LocalRecord['status'], { label: string; cls: string }>
 }
 
 function Thumb({ recordId }: { recordId: string }) {
-  const [url, setUrl] = useState<string | null>(null)
-  useEffect(() => {
-    let objectUrl: string | null = null
-    void db.photos
-      .where('recordId')
-      .equals(recordId)
-      .first()
-      .then((photo) => {
-        if (photo) {
-          objectUrl = URL.createObjectURL(photo.blob)
-          setUrl(objectUrl)
-        }
-      })
-    return () => {
-      if (objectUrl) URL.revokeObjectURL(objectUrl)
-    }
-  }, [recordId])
+  const photo = useLiveQuery(
+    () => db.photos.where('recordId').equals(recordId).first(),
+    [recordId],
+  )
+  const url = usePhotoUrl(photo)
   return url ? (
     <img src={url} className="h-14 w-14 rounded object-cover" />
   ) : (
@@ -88,7 +77,7 @@ export default function Home() {
             disabled={syncing || !navigator.onLine}
             onClick={() => {
               setSyncing(true)
-              void syncEngine.kick().finally(() => setSyncing(false))
+              void syncAll().finally(() => setSyncing(false))
             }}
             className="rounded bg-amber-600 px-3 py-1.5 text-sm font-semibold disabled:opacity-50"
           >

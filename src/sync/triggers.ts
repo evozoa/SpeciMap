@@ -4,10 +4,24 @@
  * registration in the service worker is a Chromium-only bonus.
  */
 import { db } from '../db/schema'
+import { supabase } from '../lib/supabase'
 import { SyncEngine } from './engine'
-import { supabaseTransport } from './supabaseTransport'
+import { mergeRemote } from './pull'
+import { fetchRemoteSpecimens, supabaseTransport } from './supabaseTransport'
 
 export const syncEngine = new SyncEngine(db, supabaseTransport)
+
+/** Push queued records, then pull records captured on other devices. */
+export async function syncAll(): Promise<void> {
+  await syncEngine.kick()
+  const { data } = await supabase.auth.getSession()
+  if (!data.session) return
+  try {
+    await mergeRemote(db, await fetchRemoteSpecimens())
+  } catch (err) {
+    console.warn('Pulling remote records failed', err)
+  }
+}
 
 let wired = false
 
@@ -16,12 +30,15 @@ export function wireSyncTriggers(): void {
   wired = true
 
   const kick = () => {
-    if (navigator.onLine) void syncEngine.kick()
+    if (navigator.onLine) void syncAll()
   }
 
   window.addEventListener('online', kick)
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') kick()
+  })
+  supabase.auth.onAuthStateChange((event) => {
+    if (event === 'SIGNED_IN') kick()
   })
   // App start.
   kick()

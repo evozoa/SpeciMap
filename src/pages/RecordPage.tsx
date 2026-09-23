@@ -1,10 +1,19 @@
-import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db } from '../db/schema'
+import { db, type LocalPhoto } from '../db/schema'
+import { usePhotoUrl } from '../lib/photoUrl'
 import { formatTagId } from '../lib/tagid'
 import LocationPicker from '../map/LocationPicker'
 import { syncEngine } from '../sync/triggers'
+
+function Photo({ photo }: { photo: LocalPhoto }) {
+  const url = usePhotoUrl(photo)
+  return url ? (
+    <img src={url} className="w-full rounded-lg object-cover" />
+  ) : (
+    <div className="aspect-square w-full rounded-lg bg-slate-800" />
+  )
+}
 
 export default function RecordPage() {
   const { id } = useParams<{ id: string }>()
@@ -13,15 +22,6 @@ export default function RecordPage() {
     () => (id ? db.photos.where('recordId').equals(id).toArray() : []),
     [id],
   )
-  const [urls, setUrls] = useState<string[]>([])
-
-  useEffect(() => {
-    if (!photos) return
-    const next = photos.map((p) => URL.createObjectURL(p.blob))
-    setUrls(next)
-    return () => next.forEach((u) => URL.revokeObjectURL(u))
-  }, [photos])
-
   if (!record) {
     return (
       <div className="flex min-h-full flex-col items-center justify-center gap-3">
@@ -62,9 +62,7 @@ export default function RecordPage() {
       )}
 
       <div className="grid grid-cols-2 gap-2">
-        {urls.map((u, i) => (
-          <img key={i} src={u} className="w-full rounded-lg object-cover" />
-        ))}
+        {photos?.map((p) => <Photo key={p.id} photo={p} />)}
       </div>
 
       <LocationPicker

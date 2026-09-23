@@ -7,8 +7,10 @@
 import { PHOTO_BUCKET, supabase } from '../lib/supabase'
 import type { LocalPhoto, LocalRecord } from '../db/schema'
 import { TerminalSyncError, type SyncTransport } from './engine'
+import type { RemoteSpecimen } from './pull'
 
 function photoPath(record: LocalRecord, photo: LocalPhoto): string {
+  if (photo.storagePath) return photo.storagePath
   return `${record.collectorId}/${record.id}/${photo.id}.jpg`
 }
 
@@ -54,6 +56,7 @@ export const supabaseTransport: SyncTransport = {
   },
 
   async uploadPhoto(record, photo) {
+    if (!photo.blob) throw new TerminalSyncError('Photo has no local image data')
     const { error } = await supabase.storage
       .from(PHOTO_BUCKET)
       .upload(photoPath(record, photo), photo.blob, {
@@ -77,4 +80,16 @@ export const supabaseTransport: SyncTransport = {
     )
     if (error) throw classify(error)
   },
+}
+
+/** Fetch the signed-in collector's specimens (RLS scopes to their own). */
+export async function fetchRemoteSpecimens(): Promise<RemoteSpecimen[]> {
+  const { data, error } = await supabase
+    .from('specimens')
+    .select(
+      'id, tag_id, collector_id, lat, lng, gps_accuracy_m, location_adjusted, captured_at, notes, focus_score, client_meta, specimen_photos (id, storage_path, width, height, bytes)',
+    )
+    .order('captured_at', { ascending: false })
+  if (error) throw new Error(error.message)
+  return data as RemoteSpecimen[]
 }
