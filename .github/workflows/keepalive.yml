@@ -11,6 +11,8 @@ jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
+      # Query a real table: the /rest/v1/ root now rejects the anon key (401).
+      # RLS returns an empty list, but the request still reaches Postgres.
       - run: |
-          curl -sf "${{ secrets.VITE_SUPABASE_URL }}/rest/v1/" \
+          curl -sf "${{ secrets.VITE_SUPABASE_URL }}/rest/v1/tag_batches?select=id&limit=1" \
             -H "apikey: ${{ secrets.VITE_SUPABASE_ANON_KEY }}" > /dev/null
