@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   checkSymbol,
+  compactTagUrl,
   DATA_ALPHABET,
   formatTagId,
   generateTagId,
@@ -87,5 +88,10 @@ describe('formatTagId / tagUrl', () => {
     expect(tagUrl('https://specimap.app/', '7Q4MK2XRC')).toBe(
       'https://specimap.app/s/7Q4MK2XRC',
     )
+  })
+  it('builds an uppercase compact URL that still parses back to the ID', () => {
+    const url = compactTagUrl('https://specimap.app', '7Q4MK2XRC')
+    expect(url).toBe('HTTPS://SPECIMAP.APP/S/7Q4MK2XRC')
+    expect(parseTagId(url.split('/').pop()!)).toBe('7Q4MK2XRC')
   })
 })

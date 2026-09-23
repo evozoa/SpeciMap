@@ -88,3 +88,12 @@ export function formatTagId(id: string): string {
 export function tagUrl(origin: string, id: string): string {
   return `${origin.replace(/\/$/, '')}/s/${id}`
 }
+
+/**
+ * Uppercase form of tagUrl for tiny QR codes: uppercase fits QR alphanumeric
+ * mode, which packs ~35% denser than byte mode. Scheme and host are
+ * case-insensitive, and the /s/ route matches case-insensitively.
+ */
+export function compactTagUrl(origin: string, id: string): string {
+  return tagUrl(origin, id).toUpperCase()
+}

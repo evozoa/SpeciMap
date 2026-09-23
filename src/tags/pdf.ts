@@ -6,14 +6,22 @@
  * Layout is deterministic: the same tag list always produces an identical
  * PDF, so /tags/:batchId can regenerate sheets for reprinting.
  */
-import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib'
+import {
+  PDFDocument,
+  StandardFonts,
+  degrees,
+  rgb,
+  type PDFFont,
+  type PDFPage,
+} from 'pdf-lib'
 import QRCode from 'qrcode'
-import { formatTagId, tagUrl } from '../lib/tagid'
+import { compactTagUrl, formatTagId, tagUrl } from '../lib/tagid'
 import {
   MM_TO_PT,
   PAGE_SIZES,
   PUNCH_TAG,
   QR,
+  QR_2ML,
   type PageSize,
   type TagFormat,
 } from './dimensions'
@@ -37,10 +45,14 @@ function mm(v: number): number {
   return v * MM_TO_PT
 }
 
-async function qrPng(doc: PDFDocument, url: string) {
+async function qrPng(
+  doc: PDFDocument,
+  url: string,
+  errorCorrectionLevel: 'M' | 'Q',
+) {
   // margin: 0 — the blank tag area around the code provides the quiet zone.
   const dataUrl = await QRCode.toDataURL(url, {
-    errorCorrectionLevel: QR.errorCorrection,
+    errorCorrectionLevel,
     margin: 0,
     scale: 12,
   })
@@ -114,11 +126,44 @@ export async function generateTagSheetPdf(input: TagSheetInput): Promise<Uint8Ar
       borderWidth: 0.4,
     })
 
-    const qrImage = await qrPng(doc, tagUrl(origin, id))
-    const qrSize = mm(QR.sizeMm)
     const seqText = prefix
       ? `${prefix}-${String(slot.tagIndex + 1).padStart(3, '0')}`
       : `#${slot.tagIndex + 1}`
+
+    if (format === 'insert_2ml') {
+      // QR at the top, ID + sequence running up the strip beneath it.
+      const qrImage = await qrPng(doc, compactTagUrl(origin, id), QR_2ML.errorCorrection)
+      const qrSize = mm(QR_2ML.sizeMm)
+      const qrTop = yTop - (w - qrSize) / 2
+      pdfPage.drawImage(qrImage, {
+        x: x + (w - qrSize) / 2,
+        y: qrTop - qrSize,
+        width: qrSize,
+        height: qrSize,
+      })
+      // Rotated 90° CCW: text reads bottom-to-top, glyphs extend left of x.
+      const textBottom = yBottom + mm(1.5)
+      pdfPage.drawText(formatTagId(id), {
+        x: x + w / 2 + mm(0.4),
+        y: textBottom,
+        size: 7,
+        font: mono,
+        color: INK,
+        rotate: degrees(90),
+      })
+      pdfPage.drawText(seqText, {
+        x: x + w / 2 + mm(2.9),
+        y: textBottom,
+        size: 5,
+        font: sans,
+        color: INK,
+        rotate: degrees(90),
+      })
+      continue
+    }
+
+    const qrImage = await qrPng(doc, tagUrl(origin, id), QR.errorCorrection)
+    const qrSize = mm(QR.sizeMm)
 
     if (format === 'insert') {
       // QR on the left, ID + sequence stacked on the right.

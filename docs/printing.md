@@ -26,6 +26,10 @@ Before cutting a batch, measure it with a real ruler. If it isn't exactly
   printed circle with small scissors or a 22–23mm craft punch. A standard
   office hole punch (6mm) is too small. The hole slips over the vial's
   22-400 neck threads and is held under the cap.
+- **2mL tube inserts** (8×28mm, QR end up): cut along the hairline borders
+  and slide the strip into a clear 2mL screw-cap microcentrifuge tube with
+  the QR facing out. The QR is only 6.5mm, so print on a laser printer at
+  600dpi or better and scan it through the tube wall from about 5–8cm away.
 
 ## Fit check before a big batch
 

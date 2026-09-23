@@ -1,5 +1,6 @@
 /**
- * Physical dimensions for tags and 20mL scintillation vials, in millimetres.
+ * Physical dimensions for tags, 20mL scintillation vials and 2mL screw-cap
+ * microcentrifuge tubes, in millimetres.
  *
  * !!! VERIFY AGAINST REAL VIALS before printing production batches (M4 fit
  * test). 22-400 neck-finish thread OD and cap-skirt clearance vary slightly
@@ -29,6 +30,18 @@ export const VIAL = {
   innerDiaMm: 24,
 } as const
 
+/**
+ * 2.0mL screw-cap microcentrifuge tube (USA Scientific, skirted, clear
+ * polypropylene). Typical industry dimensions — verify against real tubes.
+ */
+export const TUBE_2ML = {
+  outerDiaMm: 10.8,
+  /** Approximate inner diameter — verify. */
+  innerDiaMm: 9,
+  /** Usable interior depth above the conical bottom — verify. */
+  innerDepthMm: 32,
+} as const
+
 /** Flat strip that drops inside the vial. */
 export const INSERT_TAG: TagFormatDims = {
   w: 44,
@@ -43,6 +56,15 @@ export const PUNCH_TAG: TagFormatDims = {
   holeCenterFromTopMm: 11,
 }
 
+/**
+ * Narrow strip that drops inside a 2mL tube and is read through the clear
+ * wall. Must be narrower than TUBE_2ML.innerDiaMm so it slides in.
+ */
+export const INSERT_2ML_TAG: TagFormatDims = {
+  w: 8,
+  h: 28,
+}
+
 /** Printed QR code. Version-3 (29 modules) at 15mm ≈ 0.51mm/module. */
 export const QR = {
   sizeMm: 15,
@@ -51,7 +73,18 @@ export const QR = {
   errorCorrection: 'Q' as const,
 }
 
-export type TagFormat = 'insert' | 'punch'
+/**
+ * QR for the 2mL insert. The URL is uppercased so it encodes in QR
+ * alphanumeric mode, and error correction drops to M (15%): together that
+ * gives Version-2 (25 modules) at 6.5mm ≈ 0.26mm/module, leaving ~3 modules
+ * of quiet zone across the 8mm strip.
+ */
+export const QR_2ML = {
+  sizeMm: 6.5,
+  errorCorrection: 'M' as const,
+}
+
+export type TagFormat = 'insert' | 'punch' | 'insert_2ml'
 export type PageSize = 'letter' | 'a4'
 
 export const PAGE_SIZES: Record<PageSize, { wMm: number; hMm: number }> = {
@@ -67,6 +100,7 @@ export const TAG_GUTTER_MM = 3
 export const TAG_DIMS: Record<TagFormat, TagFormatDims> = {
   insert: INSERT_TAG,
   punch: PUNCH_TAG,
+  insert_2ml: INSERT_2ML_TAG,
 }
 
 export const MM_TO_PT = 72 / 25.4

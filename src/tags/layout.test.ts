@@ -33,6 +33,8 @@ describe('layoutSheet', () => {
     ['insert', 'a4'],
     ['punch', 'letter'],
     ['punch', 'a4'],
+    ['insert_2ml', 'letter'],
+    ['insert_2ml', 'a4'],
   ]
 
   it.each(cases)('%s on %s: no overlaps, margins respected', (format, pageSize) => {
@@ -55,6 +57,7 @@ describe('layoutSheet', () => {
     // Sanity bounds from the plan: ~52 insert tags and ~24 punch tags per Letter.
     expect(layoutSheet(1, 'insert', 'letter').perPage).toBeGreaterThanOrEqual(40)
     expect(layoutSheet(1, 'punch', 'letter').perPage).toBeGreaterThanOrEqual(20)
+    expect(layoutSheet(1, 'insert_2ml', 'letter').perPage).toBeGreaterThanOrEqual(100)
   })
 
   it('paginates row-major', () => {

@@ -1,17 +1,19 @@
 # SpeciMap
 
 Free, open-source specimen collection for fieldwork. Print uniquely numbered
-QR tags sized for 20mL scintillation vials, scan a tag with your phone's
+QR tags sized for 20mL scintillation vials or 2mL screw-cap tubes, scan a tag with your phone's
 camera, photograph the specimen with the tag, and SpeciMap records the photo,
 GPS location, and tag number — even with no signal.
 
 ## How it works
 
 1. **Print tags** — the built-in generator makes print-ready PDF sheets. Each
-   tag carries a QR code and a human-readable number, in two styles:
+   tag carries a QR code and a human-readable number, in three styles:
    - **Insert**: a strip that drops inside the vial
    - **Punch-hole**: a square whose hole fits over the vial's neck threads,
      held under the cap
+   - **2mL tube insert**: a narrow strip that drops inside a clear 2mL
+     screw-cap microcentrifuge tube and scans through the wall
 2. **Scan** a tag with your phone's normal camera app. The QR opens
    `https://<your-host>/s/<tag-id>` in the browser — no app install needed
    (though installing the PWA is recommended for offline field use).

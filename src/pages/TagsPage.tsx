@@ -168,6 +168,7 @@ export default function TagsPage() {
             >
               <option value="insert">Insert (inside vial)</option>
               <option value="punch">Punch-hole (under cap)</option>
+              <option value="insert_2ml">2mL tube insert</option>
             </select>
           </label>
           <label className="flex flex-col gap-1 text-sm">
