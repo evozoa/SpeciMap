@@ -129,3 +129,18 @@ describe('setSpecies', () => {
     )
   })
 })
+
+describe('appendToRecord species', () => {
+  it('sets the species when one is given and keeps it when blank', async () => {
+    const r = record({ species: 'Lepomis' })
+    await db.records.add(r)
+    await appendToRecord(r.id, crypto.randomUUID(), '', '  ')
+    expect((await db.records.get(r.id))?.species).toBe('Lepomis')
+    await appendToRecord(r.id, crypto.randomUUID(), '', 'Lepomis megalotis')
+    expect(await db.records.get(r.id)).toMatchObject({
+      species: 'Lepomis megalotis',
+      status: 'queued',
+      syncStep: 'upsert-specimen',
+    })
+  })
+})

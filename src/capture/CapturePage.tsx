@@ -5,6 +5,7 @@ import { useAuth } from '../auth/AuthProvider'
 import { stashResumeTag } from '../auth/resume'
 import { db } from '../db/schema'
 import { addDraftPhoto, appendToRecord, finalizeRecord } from '../db/drafts'
+import SpeciesInput from '../components/SpeciesInput'
 import { formatTagId, parseTagId } from '../lib/tagid'
 import LocationPicker, { type LatLng } from '../map/LocationPicker'
 import { syncEngine } from '../sync/triggers'
@@ -35,6 +36,8 @@ export default function CapturePage() {
   const [location, setLocation] = useState<LatLng | null>(null)
   const [locationAdjusted, setLocationAdjusted] = useState(false)
   const [notes, setNotes] = useState('')
+  // null = untouched: on a rescan the box shows the record's existing species.
+  const [speciesInput, setSpeciesInput] = useState<string | null>(null)
   const [savedStatus, setSavedStatus] = useState<'synced' | 'queued' | null>(null)
   const capturedAtRef = useRef<string | null>(null)
 
@@ -104,10 +107,12 @@ export default function CapturePage() {
     setStep('camera')
   }
 
+  const species = speciesInput ?? existingRecord?.species ?? ''
+
   async function save(where: LatLng) {
     if (!tagId || !session) return
     if (existingRecord) {
-      await appendToRecord(existingRecord.id, recordId, notes)
+      await appendToRecord(existingRecord.id, recordId, notes, species)
     } else {
       await finalizeRecord({
         id: recordId,
@@ -119,6 +124,7 @@ export default function CapturePage() {
         locationAdjusted,
         capturedAt: capturedAtRef.current ?? new Date().toISOString(),
         notes,
+        species,
         focusScore: bestFocus,
       })
     }
@@ -303,6 +309,11 @@ export default function CapturePage() {
             record from {new Date(existingRecord.capturedAt).toLocaleString()}.
             Its original time and location are kept.
           </p>
+          <SpeciesInput
+            value={species}
+            onChange={setSpeciesInput}
+            className="rounded-lg border border-slate-700 bg-slate-900 px-4 py-3"
+          />
           <input
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
@@ -347,6 +358,11 @@ export default function CapturePage() {
                   <p className="text-center font-mono text-xs text-slate-500">
                     {value.lat.toFixed(6)}, {value.lng.toFixed(6)}
                   </p>
+                  <SpeciesInput
+                    value={species}
+                    onChange={setSpeciesInput}
+                    className="rounded-lg border border-slate-700 bg-slate-900 px-4 py-3"
+                  />
                   <input
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}

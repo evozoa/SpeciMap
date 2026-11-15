@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, type LocalPhoto, type LocalRecord } from '../db/schema'
-import { knownSpecies, setSpecies } from '../db/drafts'
+import { setSpecies } from '../db/drafts'
+import SpeciesInput from '../components/SpeciesInput'
 import { usePhotoUrl } from '../lib/photoUrl'
 import { formatTagId } from '../lib/tagid'
 import LocationPicker from '../map/LocationPicker'
@@ -21,7 +22,6 @@ function SpeciesField({ record }: { record: LocalRecord }) {
   const saved = record.species ?? ''
   const [value, setValue] = useState(saved)
   const [error, setError] = useState<string | null>(null)
-  const suggestions = useLiveQuery(knownSpecies, [], [])
   // Follow the stored value when it changes elsewhere (e.g. a pull).
   useEffect(() => setValue(saved), [saved])
 
@@ -46,17 +46,12 @@ function SpeciesField({ record }: { record: LocalRecord }) {
         Species
       </label>
       <div className="flex gap-2">
-        <input
+        <SpeciesInput
           id="species"
-          list="species-suggestions"
           value={value}
-          onChange={(e) => setValue(e.target.value)}
+          onChange={setValue}
           onBlur={save}
-          placeholder="e.g. Lepomis megalotis"
-          autoCapitalize="sentences"
-          autoComplete="off"
-          spellCheck={false}
-          className="min-w-0 flex-1 rounded bg-slate-800 px-3 py-2 italic placeholder:not-italic placeholder:text-slate-600"
+          className="min-w-0 flex-1 rounded bg-slate-800 px-3 py-2 placeholder:text-slate-600"
         />
         <button
           type="submit"
@@ -66,11 +61,6 @@ function SpeciesField({ record }: { record: LocalRecord }) {
           Save
         </button>
       </div>
-      <datalist id="species-suggestions">
-        {suggestions.map((s) => (
-          <option key={s} value={s} />
-        ))}
-      </datalist>
       {error && <p className="text-sm text-red-300">{error}</p>}
     </form>
   )

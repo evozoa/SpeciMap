@@ -37,12 +37,14 @@ export interface FinalizeInput {
   locationAdjusted: boolean
   capturedAt: string
   notes: string
+  species?: string
   focusScore: number | null
 }
 
 export async function finalizeRecord(input: FinalizeInput): Promise<LocalRecord> {
   const record: LocalRecord = {
     ...input,
+    species: input.species?.trim() ?? '',
     status: 'queued',
     syncStep: 'ensure-tag',
     attempts: 0,
@@ -70,19 +72,23 @@ export function joinNotes(...notes: string[]): string {
 /**
  * Rescanning an already-recorded tag adds to that record instead of making a
  * second one: the draft's photos move onto it, notes are appended, and its
- * original capture time and location are kept. The record is requeued so the
- * new photos and notes upload.
+ * original capture time and location are kept. A species name, if given,
+ * replaces the record's (a blank one keeps it). The record is requeued so the
+ * new photos, notes and species upload.
  */
 export async function appendToRecord(
   targetId: string,
   draftId: string,
   notes: string,
+  species = '',
 ): Promise<void> {
   await db.transaction('rw', db.records, db.photos, async () => {
     const target = await db.records.get(targetId)
     if (!target) throw new Error('Record to add to no longer exists')
     await db.photos.where('recordId').equals(draftId).modify({ recordId: targetId })
+    const name = species.trim()
     await db.records.update(targetId, {
+      ...(name ? { species: name } : {}),
       notes: joinNotes(target.notes, notes),
       status: 'queued',
       syncStep: 'upsert-specimen',
