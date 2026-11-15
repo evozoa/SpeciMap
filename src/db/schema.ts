@@ -28,6 +28,11 @@ export interface LocalRecord {
   /** ISO timestamp of capture (device clock). */
   capturedAt: string
   notes: string
+  /**
+   * Species name entered by the collector (free text). Optional because
+   * records created before this field existed don't have it.
+   */
+  species?: string
   focusScore: number | null
   status: SyncStatus
   syncStep: SyncStep

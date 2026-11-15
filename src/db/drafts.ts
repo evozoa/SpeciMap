@@ -3,7 +3,8 @@
  * shutter fires (as a draft), so accidental back-navigation can never lose
  * it. Saving finalizes the draft into a queued record and kicks sync.
  */
-import { db, type LocalPhoto, type LocalRecord } from './schema'
+import { db, type LocalPhoto, type LocalRecord, type SyncStep } from './schema'
+import { STEP_ORDER } from '../sync/engine'
 
 export interface DraftPhotoInput {
   recordId: string
@@ -90,6 +91,49 @@ export async function appendToRecord(
       lastError: null,
     })
   })
+}
+
+/** The earlier of two sync steps. */
+function earlierStep(a: SyncStep, b: SyncStep): SyncStep {
+  return STEP_ORDER.indexOf(a) <= STEP_ORDER.indexOf(b) ? a : b
+}
+
+/**
+ * Set a record's species name. The edit is saved locally first; if the
+ * record has already been uploaded it is requeued from the specimen step so
+ * the change reaches the server. A record mid-upload is caught by the sync
+ * engine's stale-snapshot check.
+ */
+export async function setSpecies(id: string, species: string): Promise<void> {
+  const value = species.trim()
+  await db.transaction('rw', db.records, async () => {
+    const record = await db.records.get(id)
+    if (!record) throw new Error('Record no longer exists')
+    if ((record.species ?? '') === value) return
+    const changes: Partial<LocalRecord> = { species: value }
+    if (record.status === 'synced') {
+      Object.assign(changes, {
+        status: 'queued',
+        syncStep: 'upsert-specimen',
+        attempts: 0,
+        nextAttemptAt: 0,
+        lastError: null,
+      })
+    } else if (record.status === 'queued' || record.status === 'error') {
+      changes.syncStep = earlierStep(record.syncStep, 'upsert-specimen')
+    }
+    await db.records.update(id, changes)
+  })
+}
+
+/** Distinct species names already used on this device, for suggestions. */
+export async function knownSpecies(): Promise<string[]> {
+  const names = new Set<string>()
+  await db.records.each((r) => {
+    const s = r.species?.trim()
+    if (s) names.add(s)
+  })
+  return [...names].sort((a, b) => a.localeCompare(b))
 }
 
 export async function discardDraft(recordId: string): Promise<void> {

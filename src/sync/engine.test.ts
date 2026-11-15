@@ -298,4 +298,33 @@ describe('SyncEngine', () => {
     expect((await db.records.get(record.id))?.status).toBe('synced')
     expect((await db.photos.get(late!))?.uploaded).toBe(1)
   })
+
+  it('re-sends a record whose species was edited while it was syncing', async () => {
+    const record = makeRecord()
+    await db.records.add(record)
+    await addPhoto(db, record.id)
+
+    const { transport } = makeTransport()
+    const sent: (string | undefined)[] = []
+    const upsertSpecimen = transport.upsertSpecimen
+    transport.upsertSpecimen = async (r) => {
+      sent.push(r.species)
+      await upsertSpecimen(r)
+    }
+    const uploadPhoto = transport.uploadPhoto
+    let edited = false
+    transport.uploadPhoto = async (r, p) => {
+      // The collector names the species while photos are uploading.
+      if (!edited) {
+        edited = true
+        await db.records.update(record.id, { species: 'Lepomis megalotis' })
+      }
+      await uploadPhoto(r, p)
+    }
+    await new SyncEngine(db, transport).kick()
+
+    expect(sent).toEqual([undefined, 'Lepomis megalotis'])
+    expect((await db.records.get(record.id))?.status).toBe('synced')
+  })
 })
+

@@ -41,7 +41,7 @@ export interface SyncSummary {
   failed: number
 }
 
-const STEP_ORDER: SyncStep[] = [
+export const STEP_ORDER: SyncStep[] = [
   'ensure-tag',
   'upsert-specimen',
   'upload-photos',
@@ -133,14 +133,20 @@ export class SyncEngine {
         step = nextStep(step)
         await this.db.records.update(record.id, { syncStep: step })
       }
-      // Photos may have been added (a rescan) while this record was mid-sync;
-      // its snapshot is stale, so run it again from the specimen step.
+      // Photos may have been added (a rescan), or fields edited, while this
+      // record was mid-sync; its snapshot is stale, so run it again from the
+      // specimen step.
       const unsent = await this.db.photos
         .where('recordId')
         .equals(record.id)
         .filter((p) => !p.uploaded)
         .count()
-      if (unsent > 0) {
+      const fresh = await this.db.records.get(record.id)
+      const edited =
+        !!fresh &&
+        ((fresh.species ?? '') !== (record.species ?? '') ||
+          fresh.notes !== record.notes)
+      if (unsent > 0 || edited) {
         await this.db.records.update(record.id, {
           status: 'queued',
           syncStep: 'upsert-specimen',

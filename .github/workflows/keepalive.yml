@@ -1,18 +1,62 @@
 name: Supabase keep-alive
 
-# The Supabase free tier pauses projects after ~7 idle days; a paused
-# project breaks tag scanning. A ping every 3 days keeps it warm.
+# The Supabase free tier pauses projects it considers idle; a paused project
+# breaks tag scanning. A read-only ping did not prevent pausing (Oct 2026), so
+# this writes a heartbeat row (see migration 20261115000001_heartbeat.sql).
+#
+# On failure it opens a GitHub issue labelled "outage" (GitHub emails the repo
+# owner); on the next success it comments and closes that issue.
 on:
   schedule:
-    - cron: '17 8 */3 * *'
+    - cron: '17 8 */2 * *'
   workflow_dispatch:
+
+permissions:
+  issues: write
 
 jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      # Query a real table: the /rest/v1/ root now rejects the anon key (401).
-      # RLS returns an empty list, but the request still reaches Postgres.
-      - run: |
-          curl -sf "${{ secrets.VITE_SUPABASE_URL }}/rest/v1/tag_batches?select=id&limit=1" \
-            -H "apikey: ${{ secrets.VITE_SUPABASE_ANON_KEY }}" > /dev/null
+      - name: Write heartbeat
+        env:
+          URL: ${{ secrets.VITE_SUPABASE_URL }}
+          KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          # Three attempts, so a single network blip doesn't raise an alarm.
+          for i in 1 2 3; do
+            if out=$(curl -sf -X POST "$URL/rest/v1/rpc/heartbeat" \
+                  -H "apikey: $KEY" -H "Authorization: Bearer $KEY" \
+                  -H "Content-Type: application/json" -d '{}'); then
+              echo "heartbeat ok: $out"
+              exit 0
+            fi
+            echo "attempt $i failed"
+            sleep 60
+          done
+          exit 1
+
+      - name: Open outage issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh label create outage --color B60205 --repo "$GITHUB_REPOSITORY" 2>/dev/null || true
+          open=$(gh issue list --repo "$GITHUB_REPOSITORY" --label outage --state open --json number -q '.[0].number')
+          if [ -n "$open" ]; then
+            gh issue comment "$open" --repo "$GITHUB_REPOSITORY" --body "Still down: $RUN_URL"
+          else
+            body="The keep-alive heartbeat failed three times: $RUN_URL"$'\n\n'"If the project is paused, restore it from the Supabase dashboard. Free projects can only be restored for a limited time after pausing. This issue closes itself on the next successful heartbeat."
+            gh issue create --repo "$GITHUB_REPOSITORY" --label outage \
+              --title "SpeciMap backend unreachable (Supabase may be paused)" --body "$body"
+          fi
+
+      - name: Close outage issue on recovery
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for n in $(gh issue list --repo "$GITHUB_REPOSITORY" --label outage --state open --json number -q '.[].number'); do
+            gh issue close "$n" --repo "$GITHUB_REPOSITORY" --comment "Heartbeat succeeded again; backend is reachable."
+          done

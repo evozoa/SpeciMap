@@ -106,6 +106,13 @@ export default function Home() {
                 <div className="font-mono font-semibold">
                   {formatTagId(r.tagId)}
                 </div>
+                {r.species ? (
+                  <div className="truncate text-sm italic text-slate-200">
+                    {r.species}
+                  </div>
+                ) : (
+                  <div className="text-sm text-slate-600">No species yet</div>
+                )}
                 <div className="text-xs text-slate-400">
                   {new Date(r.capturedAt).toLocaleString()}
                 </div>

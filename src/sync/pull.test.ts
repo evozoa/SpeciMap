@@ -119,4 +119,12 @@ describe('mergeRemote', () => {
     await pull([])
     expect(await db.records.get(other.id)).toBeDefined()
   })
+
+  it('pulls the species name, and an empty one when the server has none', async () => {
+    const a = remote({ species: 'Lepomis megalotis' })
+    const b = remote()
+    await pull([a, b])
+    expect((await db.records.get(a.id))?.species).toBe('Lepomis megalotis')
+    expect((await db.records.get(b.id))?.species).toBe('')
+  })
 })

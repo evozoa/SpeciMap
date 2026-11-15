@@ -30,6 +30,7 @@ export interface RemoteSpecimen {
   location_adjusted: boolean
   captured_at: string
   notes: string | null
+  species?: string | null
   focus_score: number | null
   client_meta: Record<string, unknown> | null
   specimen_photos: RemotePhoto[]
@@ -51,6 +52,7 @@ function remoteFields(s: RemoteSpecimen) {
     locationAdjusted: s.location_adjusted,
     capturedAt: new Date(s.captured_at).toISOString(),
     notes: s.notes ?? '',
+    species: s.species ?? '',
     focusScore: s.focus_score,
     clientMeta: s.client_meta ?? {},
   }
