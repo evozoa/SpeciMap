@@ -33,6 +33,8 @@ export interface LocalRecord {
    * records created before this field existed don't have it.
    */
   species?: string
+  /** Present once the collector asks to share this record to iNaturalist. */
+  inat?: InatShare
   focusScore: number | null
   status: SyncStatus
   syncStep: SyncStep
@@ -41,6 +43,22 @@ export interface LocalRecord {
   nextAttemptAt: number
   lastError: string | null
   clientMeta: Record<string, unknown>
+}
+
+export type InatGeoprivacy = 'open' | 'obscured' | 'private'
+
+/** Optional sharing of a record to iNaturalist (see src/inat/share.ts). */
+export interface InatShare {
+  status: 'queued' | 'sharing' | 'shared' | 'error'
+  /** Client-generated observation UUID: lets a retry find a half-done share. */
+  uuid: string
+  geoprivacy: InatGeoprivacy
+  observationId: number | null
+  /** Local photo ids already attached to the observation. */
+  sharedPhotoIds: string[]
+  attempts: number
+  nextAttemptAt: number
+  lastError: string | null
 }
 
 export interface LocalPhoto {

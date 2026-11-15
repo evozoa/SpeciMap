@@ -4,6 +4,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db, type LocalPhoto, type LocalRecord } from '../db/schema'
 import { setSpecies } from '../db/drafts'
 import SpeciesInput from '../components/SpeciesInput'
+import InatRecordPanel from '../inat/InatRecordPanel'
 import { usePhotoUrl } from '../lib/photoUrl'
 import { formatTagId } from '../lib/tagid'
 import LocationPicker from '../map/LocationPicker'
@@ -125,6 +126,8 @@ export default function RecordPage() {
         readOnly
         className="h-64 overflow-hidden rounded-lg"
       />
+
+      <InatRecordPanel record={record} />
 
       <dl className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-lg bg-slate-900 p-4 text-sm">
         <dt className="text-slate-500">Captured</dt>

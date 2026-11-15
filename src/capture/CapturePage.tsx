@@ -6,6 +6,9 @@ import { stashResumeTag } from '../auth/resume'
 import { db } from '../db/schema'
 import { addDraftPhoto, appendToRecord, finalizeRecord } from '../db/drafts'
 import SpeciesInput from '../components/SpeciesInput'
+import { requestInatShare } from '../db/drafts'
+import { inatConfigured, setInatPrefs } from '../inat/auth'
+import { useInatAccount, useInatPrefs } from '../inat/InatSettings'
 import { formatTagId, parseTagId } from '../lib/tagid'
 import LocationPicker, { type LatLng } from '../map/LocationPicker'
 import { syncEngine } from '../sync/triggers'
@@ -108,6 +111,25 @@ export default function CapturePage() {
   }
 
   const species = speciesInput ?? existingRecord?.species ?? ''
+  const inatAccount = useInatAccount()
+  const inatPrefs = useInatPrefs()
+  const canShare = inatConfigured() && !!inatAccount
+  const alreadyShared = !!existingRecord?.inat
+  const shareToInat = canShare && !alreadyShared && inatPrefs.shareOnCapture
+
+
+  const inatToggle =
+    canShare && !alreadyShared ? (
+      <label className="flex items-center gap-3 rounded-lg border border-slate-700 bg-slate-900 px-4 py-3 text-sm">
+        <input
+          type="checkbox"
+          checked={inatPrefs.shareOnCapture}
+          onChange={(e) => void setInatPrefs({ shareOnCapture: e.target.checked })}
+          className="h-5 w-5 accent-emerald-500"
+        />
+        Also share to iNaturalist
+      </label>
+    ) : null
 
   async function save(where: LatLng) {
     if (!tagId || !session) return
@@ -127,6 +149,9 @@ export default function CapturePage() {
         species,
         focusScore: bestFocus,
       })
+    }
+    if (shareToInat) {
+      await requestInatShare(existingRecord?.id ?? recordId, inatPrefs.geoprivacy)
     }
     setStep('saved')
     setSavedStatus('queued')
@@ -320,6 +345,7 @@ export default function CapturePage() {
             placeholder="Notes to add (optional)"
             className="rounded-lg border border-slate-700 bg-slate-900 px-4 py-3"
           />
+          {inatToggle}
           <button
             onClick={() =>
               void save({ lat: existingRecord.lat, lng: existingRecord.lng })
@@ -369,6 +395,7 @@ export default function CapturePage() {
                     placeholder="Notes (optional)"
                     className="rounded-lg border border-slate-700 bg-slate-900 px-4 py-3"
                   />
+          {inatToggle}
                   <button
                     onClick={() => void save(value)}
                     disabled={!geo.fix && !location}

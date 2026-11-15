@@ -3,7 +3,13 @@
  * shutter fires (as a draft), so accidental back-navigation can never lose
  * it. Saving finalizes the draft into a queued record and kicks sync.
  */
-import { db, type LocalPhoto, type LocalRecord, type SyncStep } from './schema'
+import {
+  db,
+  type InatGeoprivacy,
+  type LocalPhoto,
+  type LocalRecord,
+  type SyncStep,
+} from './schema'
 import { STEP_ORDER } from '../sync/engine'
 
 export interface DraftPhotoInput {
@@ -87,7 +93,13 @@ export async function appendToRecord(
     if (!target) throw new Error('Record to add to no longer exists')
     await db.photos.where('recordId').equals(draftId).modify({ recordId: targetId })
     const name = species.trim()
+    // New photos on a shared record go to its iNaturalist observation too.
+    const inat =
+      target.inat?.status === 'shared' && target.inat.uuid
+        ? { inat: { ...target.inat, status: 'queued' as const, nextAttemptAt: 0 } }
+        : {}
     await db.records.update(targetId, {
+      ...inat,
       ...(name ? { species: name } : {}),
       notes: joinNotes(target.notes, notes),
       status: 'queued',
@@ -116,19 +128,58 @@ export async function setSpecies(id: string, species: string): Promise<void> {
     const record = await db.records.get(id)
     if (!record) throw new Error('Record no longer exists')
     if ((record.species ?? '') === value) return
-    const changes: Partial<LocalRecord> = { species: value }
-    if (record.status === 'synced') {
-      Object.assign(changes, {
+    await db.records.update(id, serverEdit(record, { species: value }))
+  })
+}
+
+/**
+ * Changes to a record field that is mirrored on the server, plus whatever
+ * sync bookkeeping makes the change reach it: a synced record is requeued
+ * from the specimen step; a queued or failed one is rewound to it; a record
+ * mid-upload is left to the engine's stale-snapshot check. Call inside a
+ * transaction that read `record`.
+ */
+export function serverEdit(
+  record: LocalRecord,
+  changes: Partial<LocalRecord>,
+): Partial<LocalRecord> {
+  if (record.status === 'synced') {
+    return {
+      ...changes,
+      status: 'queued',
+      syncStep: 'upsert-specimen',
+      attempts: 0,
+      nextAttemptAt: 0,
+      lastError: null,
+    }
+  }
+  if (record.status === 'queued' || record.status === 'error') {
+    return { ...changes, syncStep: earlierStep(record.syncStep, 'upsert-specimen') }
+  }
+  return changes
+}
+
+/** Ask for a record to be shared to iNaturalist (sent when online). */
+export async function requestInatShare(
+  id: string,
+  geoprivacy: InatGeoprivacy,
+): Promise<void> {
+  await db.transaction('rw', db.records, async () => {
+    const record = await db.records.get(id)
+    if (!record) throw new Error('Record no longer exists')
+    if (record.inat && record.inat.status !== 'error') return
+    await db.records.update(id, {
+      inat: {
         status: 'queued',
-        syncStep: 'upsert-specimen',
+        uuid: record.inat?.uuid || crypto.randomUUID(),
+        geoprivacy: record.inat?.geoprivacy ?? geoprivacy,
+        observationId: record.inat?.observationId ?? null,
+        sharedPhotoIds: record.inat?.sharedPhotoIds ?? [],
         attempts: 0,
         nextAttemptAt: 0,
         lastError: null,
-      })
-    } else if (record.status === 'queued' || record.status === 'error') {
-      changes.syncStep = earlierStep(record.syncStep, 'upsert-specimen')
-    }
-    await db.records.update(id, changes)
+      },
+    })
   })
 }
 

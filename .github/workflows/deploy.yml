@@ -9,6 +9,8 @@ on:
 #   CLOUDFLARE_API_TOKEN  (Pages:Edit permission)
 #   CLOUDFLARE_ACCOUNT_ID
 #   VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY
+# Optional repo variable (public, not secret):
+#   VITE_INAT_CLIENT_ID  (iNaturalist OAuth app; sharing is hidden without it)
 # Create the Pages project once with: npx wrangler pages project create specimap
 jobs:
   deploy:
@@ -29,6 +31,7 @@ jobs:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           VITE_APP_ORIGIN: https://specimap.org
+          VITE_INAT_CLIENT_ID: ${{ vars.VITE_INAT_CLIENT_ID }}
       - uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}

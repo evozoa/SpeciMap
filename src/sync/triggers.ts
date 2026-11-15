@@ -8,6 +8,7 @@ import { supabase } from '../lib/supabase'
 import { SyncEngine } from './engine'
 import { mergeRemote } from './pull'
 import { fetchRemoteSpecimens, supabaseTransport } from './supabaseTransport'
+import { inatShareRunner } from '../inat/share'
 
 export const syncEngine = new SyncEngine(db, supabaseTransport)
 
@@ -26,6 +27,13 @@ export async function syncAll(): Promise<void> {
     })
   } catch (err) {
     console.warn('Pulling remote records failed', err)
+  }
+  // Optional iNaturalist shares go out after the records themselves are safe.
+  try {
+    await inatShareRunner.kick()
+    await syncEngine.kick() // store any new observation ids on the server
+  } catch (err) {
+    console.warn('iNaturalist sharing failed', err)
   }
 }
 

@@ -10,7 +10,7 @@
  * Pulled photos carry only their storage path; images are fetched on demand
  * through signed URLs rather than downloaded in bulk.
  */
-import type { LocalPhoto, LocalRecord, SpeciMapDB } from '../db/schema'
+import type { InatShare, LocalPhoto, LocalRecord, SpeciMapDB } from '../db/schema'
 
 export interface RemotePhoto {
   id: string
@@ -31,6 +31,7 @@ export interface RemoteSpecimen {
   captured_at: string
   notes: string | null
   species?: string | null
+  inat_observation_id?: number | null
   focus_score: number | null
   client_meta: Record<string, unknown> | null
   specimen_photos: RemotePhoto[]
@@ -55,6 +56,20 @@ function remoteFields(s: RemoteSpecimen) {
     species: s.species ?? '',
     focusScore: s.focus_score,
     clientMeta: s.client_meta ?? {},
+  }
+}
+
+/** A record another device already shared to iNaturalist. */
+function sharedElsewhere(observationId: number): InatShare {
+  return {
+    status: 'shared',
+    uuid: '',
+    geoprivacy: 'obscured',
+    observationId,
+    sharedPhotoIds: [],
+    attempts: 0,
+    nextAttemptAt: 0,
+    lastError: null,
   }
 }
 
@@ -90,6 +105,7 @@ export async function mergeRemote(
         puts.push({
           id: s.id,
           ...remoteFields(s),
+          ...(s.inat_observation_id ? { inat: sharedElsewhere(s.inat_observation_id) } : {}),
           status: 'synced',
           syncStep: 'done',
           attempts: 0,
@@ -98,7 +114,11 @@ export async function mergeRemote(
         })
         summary.added++
       } else if (mine.status === 'synced') {
-        puts.push({ ...mine, ...remoteFields(s) })
+        const shared =
+          s.inat_observation_id && !mine.inat
+            ? { inat: sharedElsewhere(s.inat_observation_id) }
+            : {}
+        puts.push({ ...mine, ...remoteFields(s), ...shared })
         summary.updated++
       }
     }

@@ -145,7 +145,8 @@ export class SyncEngine {
       const edited =
         !!fresh &&
         ((fresh.species ?? '') !== (record.species ?? '') ||
-          fresh.notes !== record.notes)
+          fresh.notes !== record.notes ||
+          (fresh.inat?.observationId ?? null) !== (record.inat?.observationId ?? null))
       if (unsent > 0 || edited) {
         await this.db.records.update(record.id, {
           status: 'queued',

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../auth/AuthProvider'
 import { supabase } from '../lib/supabase'
+import InatSettings from '../inat/InatSettings'
 
 export default function SettingsPage() {
   const { session } = useAuth()
@@ -65,6 +66,8 @@ export default function SettingsPage() {
           </Link>
         )}
       </section>
+
+      <InatSettings />
 
       <p className="text-center text-xs text-slate-600">
         SpeciMap {__APP_VERSION__} — free & open source (MIT)

@@ -127,4 +127,14 @@ describe('mergeRemote', () => {
     expect((await db.records.get(a.id))?.species).toBe('Lepomis megalotis')
     expect((await db.records.get(b.id))?.species).toBe('')
   })
+
+  it('marks records another device shared to iNaturalist', async () => {
+    const a = remote({ inat_observation_id: 31337 })
+    await pull([a])
+    expect((await db.records.get(a.id))?.inat).toMatchObject({
+      status: 'shared',
+      observationId: 31337,
+    })
+  })
 })
+

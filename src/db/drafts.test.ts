@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto'
 import { describe, expect, it } from 'vitest'
 import { db } from './schema'
-import { appendToRecord, joinNotes, knownSpecies, setSpecies } from './drafts'
+import { appendToRecord, joinNotes, knownSpecies, requestInatShare, setSpecies } from './drafts'
 import type { LocalRecord } from './schema'
 
 describe('joinNotes', () => {
@@ -142,5 +142,45 @@ describe('appendToRecord species', () => {
       status: 'queued',
       syncStep: 'upsert-specimen',
     })
+  })
+})
+
+describe('iNaturalist share requests', () => {
+  it('queues a share once, keeping its UUID on retry after an error', async () => {
+    const r = record()
+    await db.records.add(r)
+    await requestInatShare(r.id, 'private')
+    const first = (await db.records.get(r.id))!.inat!
+    expect(first).toMatchObject({ status: 'queued', geoprivacy: 'private', observationId: null })
+
+    await requestInatShare(r.id, 'open') // already queued: no change
+    expect((await db.records.get(r.id))!.inat).toEqual(first)
+
+    await db.records.update(r.id, { inat: { ...first, status: 'error', lastError: 'x' } })
+    await requestInatShare(r.id, 'open')
+    expect((await db.records.get(r.id))!.inat).toMatchObject({
+      status: 'queued',
+      uuid: first.uuid,
+      geoprivacy: 'private',
+      lastError: null,
+    })
+  })
+
+  it('requeues a shared record when a rescan adds photos', async () => {
+    const r = record({
+      inat: {
+        status: 'shared',
+        uuid: 'u-1',
+        geoprivacy: 'obscured',
+        observationId: 9,
+        sharedPhotoIds: [],
+        attempts: 0,
+        nextAttemptAt: 0,
+        lastError: null,
+      },
+    })
+    await db.records.add(r)
+    await appendToRecord(r.id, crypto.randomUUID(), 'more')
+    expect((await db.records.get(r.id))!.inat).toMatchObject({ status: 'queued', observationId: 9 })
   })
 })

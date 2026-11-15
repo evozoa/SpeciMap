@@ -8,6 +8,7 @@ import Home from './pages/Home'
 import RecordPage from './pages/RecordPage'
 import SettingsPage from './pages/SettingsPage'
 import TagsPage from './pages/TagsPage'
+import InatCallback from './inat/InatCallback'
 
 export default function App() {
   return (
@@ -22,6 +23,7 @@ export default function App() {
           <Route path="/auth" element={<AuthPage />} />
           <Route path="/auth/callback" element={<AuthCallback />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/inat/callback" element={<InatCallback />} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>

@@ -117,6 +117,11 @@ export default function Home() {
                   {new Date(r.capturedAt).toLocaleString()}
                 </div>
               </div>
+              {r.inat?.status === 'shared' && (
+                <span className="rounded-full bg-slate-700 px-2 py-1 text-xs" title="Shared to iNaturalist">
+                  iNat
+                </span>
+              )}
               <span
                 className={`rounded-full px-2.5 py-1 text-xs font-semibold ${chip.cls}`}
               >
