@@ -91,9 +91,14 @@ photos/          The photos, named <tag ID>_<n>.jpg.
 
 Identifiers
   occurrenceID   Permanent SpeciMap record ID (urn:uuid:...).
-  fieldNumber    The QR tag ID on the specimen (e.g. 7Q4M-K2XR-C).
-  catalogNumber  Blank: assigned by the museum. Please return a list of
-                 fieldNumber -> catalogNumber so SpeciMap can record it.
+  materialEntityID     The QR tag on the specimen vial, as SpeciMap:<tag ID>
+                       (printed on the tag as e.g. 7Q4M-K2XR-C). Repeated in
+                       otherCatalogNumbers.
+  fieldNumber          The collector's field number for the collecting event
+                       (blank until SpeciMap records events).
+  catalogNumber        Blank: assigned by the museum. Please return a list of
+                       materialEntityID -> catalogNumber so SpeciMap can
+                       record it.
 
 Notes
   basisOfRecord is ${prefs.basisOfRecord}${prefs.basisOfRecord === 'HumanObservation' ? ' (photo voucher; preparations = photograph)' : ''}.

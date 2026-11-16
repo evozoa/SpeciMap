@@ -7,8 +7,10 @@
  *   - multimedia: one row per photo (GBIF Simple Multimedia terms), linked
  *     by occurrenceID, naming the image file in the package.
  *
- * The SpeciMap tag ID is the field number; the museum assigns
- * catalogNumber when it catalogs the record.
+ * The SpeciMap vial tag identifies the physical specimen: it is the
+ * materialEntityID (and is repeated in otherCatalogNumbers). fieldNumber is
+ * reserved for the collector's number for the dwc:Event, and catalogNumber
+ * for the museum.
  */
 import type { LocalRecord } from '../db/schema'
 import { formatTagId } from '../lib/tagid'
@@ -42,6 +44,7 @@ export const OCCURRENCE_COLUMNS = [
   'institutionCode',
   'collectionCode',
   'catalogNumber',
+  'materialEntityID',
   'fieldNumber',
   'otherCatalogNumbers',
   'recordedBy',
@@ -142,7 +145,8 @@ export function occurrenceRow(
     institutionCode: prefs.institutionCode.trim(),
     collectionCode: prefs.collectionCode.trim(),
     catalogNumber: '',
-    fieldNumber: formatTagId(r.tagId),
+    materialEntityID: `SpeciMap:${r.tagId}`,
+    fieldNumber: '',
     otherCatalogNumbers: `SpeciMap:${r.tagId}`,
     recordedBy: prefs.recordedBy.trim(),
     eventDate: when.iso,

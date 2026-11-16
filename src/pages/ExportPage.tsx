@@ -90,7 +90,7 @@ export default function ExportPage() {
 
       <p className="text-sm text-slate-400">
         A package for a museum: Darwin Core spreadsheets plus the photos named by
-        tag ID. The tag ID goes in <i>fieldNumber</i>; the museum assigns the
+        tag ID. The vial tag goes in <i>materialEntityID</i>; the museum assigns the
         catalog number.
       </p>
 
