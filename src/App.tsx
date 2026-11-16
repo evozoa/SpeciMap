@@ -8,6 +8,7 @@ import Home from './pages/Home'
 import SpecimenPage, { RecordRedirect } from './pages/SpecimenPage'
 import SettingsPage from './pages/SettingsPage'
 import ExportPage from './pages/ExportPage'
+import EventPage, { EventsPage, FieldSheetScan } from './pages/EventPage'
 import TagsPage from './pages/TagsPage'
 import InatCallback from './inat/InatCallback'
 
@@ -26,6 +27,9 @@ export default function App() {
           <Route path="/auth/callback" element={<AuthCallback />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/export" element={<ExportPage />} />
+          <Route path="/e/:tagId" element={<FieldSheetScan />} />
+          <Route path="/event/:id" element={<EventPage />} />
+          <Route path="/events" element={<EventsPage />} />
           <Route path="/inat/callback" element={<InatCallback />} />
         </Routes>
       </BrowserRouter>

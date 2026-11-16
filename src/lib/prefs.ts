@@ -25,7 +25,13 @@ export interface ExportPrefs {
   recordedBy: string
 }
 
+export interface CollectorPrefs {
+  /** Field numbers are "<prefix> <yy>-<nnn>", e.g. MWS 26-015. */
+  fieldNumberPrefix: string
+}
+
 const DEFAULTS = {
+  collectorPrefs: { fieldNumberPrefix: '' } as CollectorPrefs,
   capturePrefs: { fullRes: false } as CapturePrefs,
   exportPrefs: {
     institutionCode: '',

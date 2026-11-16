@@ -43,9 +43,21 @@ export default function BatchPage() {
         .eq('batch_id', batchId)
         .order('seq')
       if (error) throw new Error(error.message)
+      const ids = (data ?? []).map((r) => r.id)
+      if (info.format === 'fieldsheet') {
+        const { generateFieldSheetPdf } = await import('../tags/fieldsheet')
+        const pdf = await generateFieldSheetPdf({
+          ids,
+          pageSize: info.page_size as PageSize,
+          label: info.label ?? undefined,
+          origin: APP_ORIGIN,
+        })
+        downloadPdf(pdf, `specimap-field-sheets-${info.label || batchId.slice(0, 8)}.pdf`)
+        return
+      }
       const { generateTagSheetPdf } = await import('../tags/pdf')
       const pdf = await generateTagSheetPdf({
-        ids: (data ?? []).map((r) => r.id),
+        ids,
         format: info.format as TagFormat,
         pageSize: info.page_size as PageSize,
         prefix: info.prefix ?? undefined,

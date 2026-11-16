@@ -6,8 +6,13 @@
 const KEY = 'specimap.resumeTag'
 
 export function stashResumeTag(tagId: string): void {
+  stashResumePath(`/s/${tagId}`)
+}
+
+/** Any in-app path to return to after signing in (e.g. a field sheet /e/…). */
+export function stashResumePath(path: string): void {
   try {
-    sessionStorage.setItem(KEY, tagId)
+    sessionStorage.setItem(KEY, path)
   } catch {
     // Private browsing quota errors — resume is best-effort.
   }
@@ -15,10 +20,11 @@ export function stashResumeTag(tagId: string): void {
 
 export function resumePath(): string {
   try {
-    const tagId = sessionStorage.getItem(KEY)
-    if (tagId) {
+    const stashed = sessionStorage.getItem(KEY)
+    if (stashed) {
       sessionStorage.removeItem(KEY)
-      return `/s/${tagId}`
+      // Older builds stashed a bare tag ID.
+      return stashed.startsWith('/') ? stashed : `/s/${stashed}`
     }
   } catch {
     // ignore

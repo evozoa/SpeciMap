@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db/schema'
 import { buildPackage } from '../export/package'
+import { buildSpecimens } from '../specimens/view'
 import { isFullRes } from '../lib/image'
 import { setPrefs, usePrefs, type BasisOfRecord, type PhotoLicense } from '../lib/prefs'
 
@@ -37,16 +38,18 @@ export default function ExportPage() {
   const [warnings, setWarnings] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
 
+  // Specimens, by the local date of their first capture.
   const selected = useLiveQuery(async () => {
-    const all = await db.records.where('status').notEqual('draft').sortBy('capturedAt')
-    return all.filter((r) => {
-      const day = r.capturedAt.slice(0, 10)
+    const all = buildSpecimens(await db.records.toArray(), await db.specimens.toArray())
+    return all.filter((v) => {
+      const day = new Date(v.first.capturedAt).toLocaleDateString('en-CA')
       return (!from || day >= from) && (!to || day <= to)
     })
   }, [from, to])
   const photoStats = useLiveQuery(async () => {
     if (!selected) return null
-    const photos = await db.photos.where('recordId').anyOf(selected.map((r) => r.id)).toArray()
+    const ids = selected.flatMap((v) => v.captures.map((r) => r.id))
+    const photos = await db.photos.where('recordId').anyOf(ids).toArray()
     return {
       count: photos.length,
       mb: photos.reduce((n, p) => n + p.bytes, 0) / 1e6,
@@ -55,7 +58,8 @@ export default function ExportPage() {
   }, [selected])
 
   const records = selected ?? []
-  const noSpecies = records.filter((r) => !r.species?.trim()).length
+  const noSpecies = records.filter((v) => !v.species).length
+  const disagree = records.filter((v) => v.disagreement || v.reuseSuspects.length).length
   const missing = [
     !prefs.recordedBy.trim() && 'collector name',
     !prefs.institutionCode.trim() && 'institution code',
@@ -172,7 +176,7 @@ export default function ExportPage() {
           </label>
         </div>
         <p className="text-slate-300">
-          {records.length} record{records.length === 1 ? '' : 's'}
+          {records.length} specimen{records.length === 1 ? '' : 's'}
           {photoStats &&
             `, ${photoStats.count} photo${photoStats.count === 1 ? '' : 's'} (~${photoStats.mb.toFixed(0)} MB on this phone)`}
         </p>
@@ -183,7 +187,13 @@ export default function ExportPage() {
           </p>
         )}
         {noSpecies > 0 && (
-          <p className="text-xs text-amber-300">{noSpecies} record(s) have no species name.</p>
+          <p className="text-xs text-amber-300">{noSpecies} specimen(s) have no species name.</p>
+        )}
+        {disagree > 0 && (
+          <p className="text-xs text-amber-300">
+            {disagree} specimen(s) have disagreeing identifications or a possible reused tag. Review
+            them first; disagreements are noted in taxonRemarks.
+          </p>
         )}
       </section>
 

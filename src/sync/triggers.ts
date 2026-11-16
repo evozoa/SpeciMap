@@ -7,15 +7,27 @@ import { db } from '../db/schema'
 import { supabase } from '../lib/supabase'
 import { SyncEngine } from './engine'
 import { mergeRemote } from './pull'
-import { fetchRemoteSpecimens, specimenTransport, supabaseTransport } from './supabaseTransport'
+import {
+  eventTransport,
+  fetchRemoteSpecimens,
+  specimenTransport,
+  supabaseTransport,
+} from './supabaseTransport'
+import { EventSyncRunner } from '../events/sync'
 import { pullSpecimens, pushSpecimens } from '../specimens/store'
 import { inatShareRunner } from '../inat/share'
 import { taxonResolver } from '../taxa/resolver'
 
 export const syncEngine = new SyncEngine(db, supabaseTransport)
+export const eventSync = new EventSyncRunner(db, eventTransport)
 
 /** Push queued records, then pull records captured on other devices. */
 export async function syncAll(): Promise<void> {
+  try {
+    await eventSync.kick()
+  } catch (err) {
+    console.warn('Event sync failed', err)
+  }
   await syncEngine.kick()
   const { data } = await supabase.auth.getSession()
   if (!data.session) return
@@ -29,6 +41,11 @@ export async function syncAll(): Promise<void> {
     })
   } catch (err) {
     console.warn('Pulling remote records failed', err)
+  }
+  try {
+    await eventSync.pull()
+  } catch (err) {
+    console.warn('Pulling events failed', err)
   }
   // Specimen-level fields (individual count, reviews), after the captures
   // that create their server rows.

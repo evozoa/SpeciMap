@@ -3,7 +3,8 @@
  * the photos named by tag ID, and a README explaining both.
  */
 import { zip, strToU8, type AsyncZippable } from 'fflate'
-import { db, type LocalRecord } from '../db/schema'
+import { db, type LocalEventPhoto, type LocalPhoto } from '../db/schema'
+import type { SpecimenView } from '../specimens/view'
 import { INAT_API } from '../inat/auth'
 import { isFullRes } from '../lib/image'
 import { loadPhotoBlob } from '../lib/photoUrl'
@@ -12,6 +13,7 @@ import {
   MULTIMEDIA_COLUMNS,
   OCCURRENCE_COLUMNS,
   classificationFrom,
+  fieldNotesFileName,
   multimediaRows,
   occurrenceRow,
   photoFileName,
@@ -46,13 +48,25 @@ export interface PackageResult {
   warnings: string[]
 }
 
+/** A specimen's photos, in capture order. */
+async function specimenPhotos(v: SpecimenView): Promise<LocalPhoto[]> {
+  const order = new Map(v.captures.map((r, i) => [r.id, i]))
+  const photos = await db.photos.where('recordId').anyOf([...order.keys()]).toArray()
+  return photos.sort((a, b) => order.get(a.recordId)! - order.get(b.recordId)! || a.id.localeCompare(b.id))
+}
+
+/** The specimen's collecting event: that of its earliest capture made in one. */
+export function eventIdOf(v: SpecimenView): string | undefined {
+  return v.captures.find((r) => r.eventId)?.eventId
+}
+
 async function itemsFor(
-  records: LocalRecord[],
+  specimens: SpecimenView[],
   withPhotos: boolean,
   warnings: string[],
-): Promise<ExportItem[]> {
+): Promise<{ items: ExportItem[]; fieldNotes: Map<string, LocalEventPhoto[]> }> {
   let classes = new Map<number, Classification>()
-  const taxonIds = records.flatMap((r) => (r.taxon ? [r.taxon.id] : []))
+  const taxonIds = specimens.flatMap((v) => (v.taxon ? [v.taxon.id] : []))
   if (taxonIds.length) {
     try {
       classes = await fetchClassifications(taxonIds)
@@ -60,67 +74,85 @@ async function itemsFor(
       warnings.push('Offline: kingdom-to-genus columns are blank. Export again when online to fill them.')
     }
   }
+  const eventIds = [...new Set(specimens.map(eventIdOf).filter((id): id is string => !!id))]
+  const events = new Map((await db.events.bulkGet(eventIds)).filter((e) => !!e).map((e) => [e!.id, e!]))
+  const fieldNotes = new Map<string, LocalEventPhoto[]>()
+  if (withPhotos) {
+    for (const id of eventIds) {
+      fieldNotes.set(id, (await db.eventPhotos.where('eventId').equals(id).toArray()).sort((a, b) => a.id.localeCompare(b.id)))
+    }
+  }
   const items: ExportItem[] = []
-  for (const record of records) {
+  for (const v of specimens) {
     const photos = withPhotos
-      ? (await db.photos.where('recordId').equals(record.id).sortBy('id')).map((p, i) => ({
-          fileName: photoFileName(record.tagId, i),
+      ? (await specimenPhotos(v)).map((p, i) => ({
+          fileName: photoFileName(v.tagId, i),
           width: p.width,
           height: p.height,
           fullRes: isFullRes(p),
         }))
       : []
+    const evId = eventIdOf(v)
     items.push({
-      record,
+      specimen: v,
       photos,
-      classification: record.taxon ? classes.get(record.taxon.id) : undefined,
+      classification: v.taxon ? classes.get(v.taxon.id) : undefined,
+      event: evId ? events.get(evId) : undefined,
+      fieldNotes: evId ? (fieldNotes.get(evId) ?? []).map((_, i) => fieldNotesFileName(evId, i)) : [],
     })
   }
-  return items
+  return { items, fieldNotes }
 }
 
 export function readme(prefs: ExportPrefs, count: number, photoCount: number): string {
   return `SpeciMap Darwin Core export
 Created ${new Date().toISOString()} with SpeciMap (https://specimap.org)
 
-${count} record(s), ${photoCount} photo(s).
+${count} specimen(s), ${photoCount} image(s).
 
-occurrence.csv   One row per specimen record (Darwin Core terms).
-multimedia.csv   One row per photo, linked to occurrence.csv by occurrenceID.
-photos/          The photos, named <tag ID>_<n>.jpg.
+occurrence.csv   One row per specimen (Darwin Core terms), with the terms of
+                 its collecting event (dwc:Event).
+multimedia.csv   One row per specimen photo, linked by occurrenceID.
+photos/          Specimen photos, named <vial tag>_<n>.jpg.
+fieldnotes/      Photos of the completed field sheets (see fieldNotes).
 
 Identifiers
-  occurrenceID   Permanent SpeciMap record ID (urn:uuid:...).
-  materialEntityID     The QR tag on the specimen vial, as SpeciMap:<tag ID>
-                       (printed on the tag as e.g. 7Q4M-K2XR-C). Repeated in
-                       otherCatalogNumbers.
-  fieldNumber          The collector's field number for the collecting event
-                       (blank until SpeciMap records events).
-  catalogNumber        Blank: assigned by the museum. Please return a list of
-                       materialEntityID -> catalogNumber so SpeciMap can
-                       record it.
+  occurrenceID       https://specimap.org/specimen/<vial tag>
+  materialEntityID   The QR tag on the specimen vial, as SpeciMap:<tag>
+                     (printed on the tag as e.g. 7Q4M-K2XR-C). Repeated in
+                     otherCatalogNumbers.
+  eventID            https://specimap.org/event/<field sheet tag>
+  parentEventID      Set when several collectors' field sheets were linked
+                     into one collecting event.
+  fieldNumber        The collector's field number for the event.
+  catalogNumber      Blank: assigned by the museum. Please return a list of
+                     materialEntityID -> catalogNumber so SpeciMap can
+                     record it.
 
 Notes
   basisOfRecord is ${prefs.basisOfRecord}${prefs.basisOfRecord === 'HumanObservation' ? ' (photo voucher; preparations = photograph)' : ''}.
-  Coordinates are WGS84 from the phone GPS; coordinateUncertaintyInMeters is
-  the GPS accuracy reported by the phone.
-  eventDate is local time with its UTC offset.
-  country, stateProvince, county and locality are not recorded by SpeciMap
-  and are left blank.
+  individualCount is >1 when one vial tag is on a lot.
+  Coordinates are WGS84 from the phone GPS at the specimen's first capture;
+  coordinateUncertaintyInMeters is the GPS accuracy reported by the phone.
+  Locality, county, stateProvince and countryCode come from the event, as
+  entered by the collector (blank for specimens recorded without an event).
+  eventDate is local time with its UTC offset; an interval (start/end) when
+  the event was ended in SpeciMap.
   scientificName is the collector's identification. taxonID links the
   matching iNaturalist taxon where one was confirmed; the higher
-  classification (kingdom to genus) comes from iNaturalist.
+  classification (kingdom to genus) comes from iNaturalist. taxonRemarks
+  notes unmatched names and disagreeing identifications.
   Photos are licensed ${prefs.license} (see multimedia.csv).
 `
 }
 
 export async function buildPackage(
-  records: LocalRecord[],
+  specimens: SpecimenView[],
   prefs: ExportPrefs,
   { withPhotos = true, onProgress }: { withPhotos?: boolean; onProgress?: (done: number, total: number) => void } = {},
 ): Promise<PackageResult> {
   const warnings: string[] = []
-  const items = await itemsFor(records, withPhotos, warnings)
+  const { items, fieldNotes } = await itemsFor(specimens, withPhotos, warnings)
   const occurrence = toCsv(OCCURRENCE_COLUMNS, items.map((it) => occurrenceRow(it, prefs)))
   const multimedia = toCsv(MULTIMEDIA_COLUMNS, items.flatMap((it) => multimediaRows(it, prefs)))
   const stamp = new Date().toISOString().slice(0, 10)
@@ -137,10 +169,23 @@ export async function buildPackage(
     'occurrence.csv': strToU8(BOM + occurrence),
     'multimedia.csv': strToU8(BOM + multimedia),
   }
-  const total = items.reduce((n, it) => n + it.photos.length, 0)
+  const total =
+    items.reduce((n, it) => n + it.photos.length, 0) +
+    [...fieldNotes.values()].reduce((n, ps) => n + ps.length, 0)
   let done = 0
-  for (const { record, photos } of items) {
-    const local = await db.photos.where('recordId').equals(record.id).sortBy('id')
+  for (const [evId, sheetPhotos] of fieldNotes) {
+    for (const [i, p] of sheetPhotos.entries()) {
+      const name = fieldNotesFileName(evId, i)
+      try {
+        files[name] = [new Uint8Array(await (await loadPhotoBlob(p as unknown as LocalPhoto)).arrayBuffer()), { level: 0 }]
+      } catch (e) {
+        warnings.push(`${name}: ${e instanceof Error ? e.message : String(e)}`)
+      }
+      onProgress?.(++done, total)
+    }
+  }
+  for (const { specimen, photos } of items) {
+    const local = await specimenPhotos(specimen)
     for (const [i, p] of local.entries()) {
       try {
         const bytes = new Uint8Array(await (await loadPhotoBlob(p)).arrayBuffer())

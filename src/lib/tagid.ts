@@ -89,6 +89,11 @@ export function tagUrl(origin: string, id: string): string {
   return `${origin.replace(/\/$/, '')}/s/${id}`
 }
 
+/** URL encoded in a field sheet's QR code: opens (or starts) its event. */
+export function eventUrl(origin: string, id: string): string {
+  return `${origin.replace(/\/$/, '')}/e/${id}`
+}
+
 /**
  * Uppercase form of tagUrl for tiny QR codes: uppercase fits QR alphanumeric
  * mode, which packs ~35% denser than byte mode. Scheme and host are

@@ -9,6 +9,8 @@ import type { LocalPhoto, LocalRecord } from '../db/schema'
 import { TerminalSyncError, type SyncTransport } from './engine'
 import type { RemoteSpecimen } from './pull'
 import type { RemoteMaterialEntity, SpecimenTransport } from '../specimens/store'
+import { db } from '../db/schema'
+import { eventRow, type EventTransport, type RemoteEvent } from '../events/sync'
 
 function photoPath(record: LocalRecord, photo: LocalPhoto): string {
   if (photo.storagePath) return photo.storagePath
@@ -36,6 +38,12 @@ export const supabaseTransport: SyncTransport = {
     if (error) throw classify(error)
   },
 
+  async ensureEvent(eventId) {
+    const e = await db.events.get(eventId)
+    if (!e) return // pulled capture of an event this device doesn't have
+    await eventTransport.upsertEvent(e)
+  },
+
   async upsertSpecimen(record) {
     const { error } = await supabase.from('specimens').upsert(
       {
@@ -48,6 +56,7 @@ export const supabaseTransport: SyncTransport = {
         location_adjusted: record.locationAdjusted,
         captured_at: record.capturedAt,
         notes: record.notes || null,
+        event_id: record.eventId ?? null,
         species: record.species?.trim() || null,
         identified_at: record.species?.trim() ? (record.identifiedAt ?? record.capturedAt) : null,
         taxon_id: record.taxon?.id ?? null,
@@ -91,6 +100,51 @@ export const supabaseTransport: SyncTransport = {
 
 const PAGE_SIZE = 1000
 
+export const eventTransport: EventTransport = {
+  async upsertEvent(e) {
+    const { error } = await supabase.from('events').upsert(eventRow(e), { onConflict: 'id' })
+    if (error) throw classify(error)
+  },
+
+  async uploadPhoto(e, p) {
+    if (!p.blob) throw new TerminalSyncError('Photo has no local image data')
+    const path = p.storagePath ?? `${e.createdBy}/events/${e.id}/${p.id}.jpg`
+    const { error } = await supabase.storage
+      .from(PHOTO_BUCKET)
+      .upload(path, p.blob, { contentType: 'image/jpeg', upsert: true })
+    if (error) throw classify(error)
+  },
+
+  async upsertPhotoRow(e, p) {
+    const { error } = await supabase.from('event_photos').upsert(
+      {
+        id: p.id,
+        event_id: e.id,
+        storage_path: p.storagePath ?? `${e.createdBy}/events/${e.id}/${p.id}.jpg`,
+        width: p.width,
+        height: p.height,
+        bytes: p.bytes,
+      },
+      { onConflict: 'id' },
+    )
+    if (error) throw classify(error)
+  },
+
+  async fetchAll() {
+    const all: RemoteEvent[] = []
+    for (let from = 0; ; from += PAGE_SIZE) {
+      const { data, error } = await supabase
+        .from('events')
+        .select('*, event_photos (id, storage_path, width, height, bytes)')
+        .order('id')
+        .range(from, from + PAGE_SIZE - 1)
+      if (error) throw new Error(error.message)
+      all.push(...(data as RemoteEvent[]))
+      if (data.length < PAGE_SIZE) return all
+    }
+  },
+}
+
 export const specimenTransport: SpecimenTransport = {
   async update(s) {
     const { data, error } = await supabase
@@ -132,7 +186,7 @@ export async function fetchRemoteSpecimens(): Promise<RemoteSpecimen[]> {
     const { data, error } = await supabase
       .from('specimens')
       .select(
-        'id, tag_id, collector_id, lat, lng, gps_accuracy_m, location_adjusted, captured_at, notes, species, identified_at, taxon_id, taxon_name, taxon_rank, inat_observation_id, focus_score, client_meta, specimen_photos (id, storage_path, width, height, bytes)',
+        'id, tag_id, collector_id, lat, lng, gps_accuracy_m, location_adjusted, captured_at, notes, species, identified_at, event_id, taxon_id, taxon_name, taxon_rank, inat_observation_id, focus_score, client_meta, specimen_photos (id, storage_path, width, height, bytes)',
       )
       .order('id')
       .range(from, from + PAGE_SIZE - 1)

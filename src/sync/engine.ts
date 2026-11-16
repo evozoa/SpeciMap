@@ -14,6 +14,8 @@ import type { LocalPhoto, LocalRecord, SpeciMapDB, SyncStep } from '../db/schema
 export interface SyncTransport {
   /** Insert the tag if unknown (ON CONFLICT DO NOTHING semantics). */
   ensureTag(tagId: string): Promise<void>
+  /** Upsert the capture's collecting event, if it has one (dwc:Event). */
+  ensureEvent?(eventId: string): Promise<void>
   /** Upsert the specimen row by its client UUID. */
   upsertSpecimen(record: LocalRecord): Promise<void>
   /** Upload one photo blob to its deterministic path (upsert: true). */
@@ -147,6 +149,7 @@ export class SyncEngine {
         ((fresh.species ?? '') !== (record.species ?? '') ||
           fresh.notes !== record.notes ||
           fresh.tagId !== record.tagId ||
+          fresh.eventId !== record.eventId ||
           fresh.identifiedAt !== record.identifiedAt ||
           (fresh.taxon?.id ?? null) !== (record.taxon?.id ?? null) ||
           (fresh.inat?.observationId ?? null) !== (record.inat?.observationId ?? null))
@@ -154,7 +157,10 @@ export class SyncEngine {
         await this.db.records.update(record.id, {
           status: 'queued',
           // A capture moved to another tag must register that tag first.
-          syncStep: fresh && fresh.tagId !== record.tagId ? 'ensure-tag' : 'upsert-specimen',
+          syncStep:
+            fresh && (fresh.tagId !== record.tagId || fresh.eventId !== record.eventId)
+              ? 'ensure-tag'
+              : 'upsert-specimen',
           nextAttemptAt: 0,
         })
         this.rerunRequested = true
@@ -207,6 +213,7 @@ export class SyncEngine {
     switch (step) {
       case 'ensure-tag':
         await this.transport.ensureTag(record.tagId)
+        if (record.eventId) await this.transport.ensureEvent?.(record.eventId)
         return
       case 'upsert-specimen':
         await this.transport.upsertSpecimen(record)

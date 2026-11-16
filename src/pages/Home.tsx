@@ -5,6 +5,7 @@ import { useAuth } from '../auth/AuthProvider'
 import { db, type LocalRecord } from '../db/schema'
 import { needsNameCheck } from '../db/drafts'
 import { buildSpecimens } from '../specimens/view'
+import { getActiveEvent } from '../events/store'
 import { usePhotoUrl } from '../lib/photoUrl'
 import { formatTagId } from '../lib/tagid'
 import { syncAll } from '../sync/triggers'
@@ -42,12 +43,16 @@ export default function Home() {
     0,
   )
   const [syncing, setSyncing] = useState(false)
+  const activeEvent = useLiveQuery(() => getActiveEvent(), [], null)
 
   return (
     <div className="mx-auto flex min-h-full max-w-lg flex-col gap-4 p-4">
       <header className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">SpeciMap</h1>
         <nav className="flex gap-3 text-sm">
+          <Link to="/events" className="text-emerald-400 underline">
+            Events
+          </Link>
           <Link to="/tags" className="text-emerald-400 underline">
             Tag sheets
           </Link>
@@ -69,9 +74,17 @@ export default function Home() {
         </Link>
       )}
 
-      <div className="rounded-lg bg-slate-900 p-4 text-sm text-slate-300">
-        Scan a SpeciMap tag with your phone's camera app to record a specimen.
-      </div>
+      {activeEvent ? (
+        <Link to={`/event/${activeEvent.id}`} className="rounded-lg bg-emerald-900/50 p-4 text-sm text-emerald-100">
+          <span className="font-semibold">Event {activeEvent.fieldNumber || formatTagId(activeEvent.id)} is active.</span>{' '}
+          Specimens you scan now join it. Open to edit or end it.
+        </Link>
+      ) : (
+        <div className="rounded-lg bg-slate-900 p-4 text-sm text-slate-300">
+          Scan a field sheet to start an event, then scan vial tags with your phone's camera app to
+          record specimens.
+        </div>
+      )}
 
       {pending > 0 && (
         <div className="flex items-center justify-between rounded-lg bg-amber-900/50 px-4 py-3">

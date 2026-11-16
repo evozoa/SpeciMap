@@ -5,6 +5,39 @@ import { supabase } from '../lib/supabase'
 import InatSettings from '../inat/InatSettings'
 import { setPrefs, usePrefs } from '../lib/prefs'
 
+function CollectorSettings() {
+  const { recordedBy } = usePrefs('exportPrefs')
+  const { fieldNumberPrefix } = usePrefs('collectorPrefs')
+  const yy = String(new Date().getFullYear()).slice(-2)
+  return (
+    <section className="flex flex-col gap-3 rounded-lg bg-slate-900 p-4 text-sm">
+      <h2 className="font-semibold">Collector</h2>
+      <label className="flex flex-col gap-1">
+        Name <span className="text-xs text-slate-500">recordedBy on your events and exports</span>
+        <input
+          value={recordedBy}
+          onChange={(e) => void setPrefs('exportPrefs', { recordedBy: e.target.value })}
+          placeholder="Name as it should appear on records"
+          className="rounded bg-slate-800 px-3 py-2"
+        />
+      </label>
+      <label className="flex flex-col gap-1">
+        Field number prefix{' '}
+        <span className="text-xs text-slate-500">
+          New events are numbered {fieldNumberPrefix.trim() ? `${fieldNumberPrefix.trim()} ` : ''}
+          {yy}-001, {yy}-002…
+        </span>
+        <input
+          value={fieldNumberPrefix}
+          onChange={(e) => void setPrefs('collectorPrefs', { fieldNumberPrefix: e.target.value.toUpperCase().slice(0, 8) })}
+          placeholder="Your initials"
+          className="rounded bg-slate-800 px-3 py-2 font-mono"
+        />
+      </label>
+    </section>
+  )
+}
+
 function VoucherSettings() {
   const { fullRes } = usePrefs('capturePrefs')
   return (
@@ -96,6 +129,8 @@ export default function SettingsPage() {
           </Link>
         )}
       </section>
+
+      <CollectorSettings />
 
       <VoucherSettings />
 

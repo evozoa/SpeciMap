@@ -5,6 +5,7 @@ import { useAuth } from '../auth/AuthProvider'
 import { stashResumeTag } from '../auth/resume'
 import { db, type Taxon } from '../db/schema'
 import { REUSE_HOURS, REUSE_METRES, distanceMetres } from '../specimens/view'
+import { getActiveEvent } from '../events/store'
 import { addDraftPhoto, appendToRecord, finalizeRecord } from '../db/drafts'
 import SpeciesInput from '../components/SpeciesInput'
 import { requestInatShare } from '../db/drafts'
@@ -66,6 +67,8 @@ export default function CapturePage() {
     [tagId, userId, recordId],
   )
   const existingRecord = separate ? undefined : previousCapture
+  // New captures join the event started by the last field sheet scanned.
+  const activeEvent = useLiveQuery(() => getActiveEvent(), [], null)
   const hereNow = geo.fix ? { lat: geo.fix.lat, lng: geo.fix.lng } : null
   const farFromPrevious =
     !!previousCapture &&
@@ -168,6 +171,7 @@ export default function CapturePage() {
         notes,
         species,
         taxon,
+        eventId: activeEvent?.id,
         focusScore: bestFocus,
       })
     }
@@ -257,7 +261,14 @@ export default function CapturePage() {
   return (
     <div className="flex min-h-full flex-col">
       <header className="flex items-center justify-between bg-slate-900 px-4 py-2">
-        <span className="font-mono text-lg font-bold">{formatTagId(tagId)}</span>
+        <span className="flex flex-col">
+          <span className="font-mono text-lg font-bold">{formatTagId(tagId)}</span>
+          {activeEvent && !existingRecord && (
+            <span className="text-xs text-emerald-300">
+              Event {activeEvent.fieldNumber || formatTagId(activeEvent.id)}
+            </span>
+          )}
+        </span>
         <span className="text-xs text-slate-400">
           {geo.fix
             ? `GPS ±${Math.round(geo.fix.accuracyM)}m`

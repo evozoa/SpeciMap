@@ -52,6 +52,8 @@ export interface LocalRecord {
    * Local only (never synced).
    */
   taxonReview?: TaxonReview | null
+  /** dwc:eventID of the collecting event this capture was made during. */
+  eventId?: string
   /** Present once the collector asks to share this record to iNaturalist. */
   inat?: InatShare
   focusScore: number | null
@@ -135,6 +137,53 @@ export interface LocalSpecimen {
   dirty: 0 | 1
 }
 
+/**
+ * A collecting event (dwc:Event). Field-sheet events use the sheet's QR tag
+ * as `id` (dwc:eventID). Location terms are set on the event so they're
+ * entered once per site, not once per specimen.
+ */
+export interface LocalEvent {
+  id: string
+  tagId: string | null
+  parentEventId: string | null
+  createdBy: string
+  fieldNumber: string
+  recordedBy: string
+  /** Start (ISO); `eventEnd` closes the dwc:eventDate interval. */
+  eventDate: string
+  eventEnd: string | null
+  decimalLatitude: number | null
+  decimalLongitude: number | null
+  coordinateUncertaintyInMeters: number | null
+  locality: string
+  waterBody: string
+  county: string
+  stateProvince: string
+  countryCode: string
+  samplingProtocol: string
+  samplingEffort: string
+  habitat: string
+  eventRemarks: string
+  /** Bumped on every local edit; lets sync detect edits made mid-upload. */
+  updatedAt: string
+  status: 'queued' | 'syncing' | 'synced' | 'error'
+  attempts: number
+  nextAttemptAt: number
+  lastError: string | null
+}
+
+/** A photo of the completed field sheet (dwc:fieldNotes). */
+export interface LocalEventPhoto {
+  id: string
+  eventId: string
+  blob: Blob | null
+  storagePath?: string
+  width: number
+  height: number
+  bytes: number
+  uploaded: 0 | 1
+}
+
 export interface CachedTag {
   id: string
   batchId: string | null
@@ -153,6 +202,8 @@ export class SpeciMapDB extends Dexie {
   meta!: EntityTable<MetaRow, 'key'>
   taxa!: EntityTable<CachedTaxon, 'id'>
   specimens!: EntityTable<LocalSpecimen, 'tagId'>
+  events!: EntityTable<LocalEvent, 'id'>
+  eventPhotos!: EntityTable<LocalEventPhoto, 'id'>
 
   constructor(name = 'specimap') {
     super(name)
@@ -169,6 +220,12 @@ export class SpeciMapDB extends Dexie {
     // v3: specimen-level fields, one row per vial tag.
     this.version(3).stores({
       specimens: 'tagId, dirty',
+    })
+    // v4: collecting events (field sheets) and their photos.
+    this.version(4).stores({
+      events: 'id, eventDate, status',
+      eventPhotos: 'id, eventId, uploaded',
+      records: 'id, tagId, status, capturedAt, nextAttemptAt, eventId',
     })
   }
 }

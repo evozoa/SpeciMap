@@ -3,18 +3,21 @@
  * specimens). Pure functions, so the column mapping is unit-tested.
  *
  * Output is two tables:
- *   - occurrence: one row per record (Darwin Core terms);
+ *   - occurrence: one row per specimen (all captures of one vial tag), with
+ *     its collecting event's terms (eventID, fieldNumber, locality…);
  *   - multimedia: one row per photo (GBIF Simple Multimedia terms), linked
  *     by occurrenceID, naming the image file in the package.
  *
- * The SpeciMap vial tag identifies the physical specimen: it is the
- * materialEntityID (and is repeated in otherCatalogNumbers). fieldNumber is
- * reserved for the collector's number for the dwc:Event, and catalogNumber
- * for the museum.
+ * The vial tag identifies the physical specimen (materialEntityID, repeated
+ * in otherCatalogNumbers). fieldNumber is the collector's number for the
+ * event; catalogNumber is left for the museum.
  */
-import type { LocalRecord } from '../db/schema'
-import { formatTagId } from '../lib/tagid'
+import type { LocalEvent } from '../db/schema'
 import type { ExportPrefs, PhotoLicense } from '../lib/prefs'
+import { formatTagId } from '../lib/tagid'
+import type { SpecimenView } from '../specimens/view'
+
+export const SITE = 'https://specimap.org'
 
 export interface Classification {
   kingdom?: string
@@ -33,9 +36,12 @@ export interface ExportPhoto {
 }
 
 export interface ExportItem {
-  record: LocalRecord
+  specimen: SpecimenView
   photos: ExportPhoto[]
   classification?: Classification
+  event?: LocalEvent
+  /** File names of the event's field-sheet photos in the package. */
+  fieldNotes?: string[]
 }
 
 export const OCCURRENCE_COLUMNS = [
@@ -45,16 +51,25 @@ export const OCCURRENCE_COLUMNS = [
   'collectionCode',
   'catalogNumber',
   'materialEntityID',
-  'fieldNumber',
   'otherCatalogNumbers',
+  'individualCount',
+  'eventID',
+  'parentEventID',
+  'fieldNumber',
   'recordedBy',
   'eventDate',
   'year',
   'month',
   'day',
-  'country',
+  'samplingProtocol',
+  'samplingEffort',
+  'habitat',
+  'eventRemarks',
+  'fieldNotes',
+  'countryCode',
   'stateProvince',
   'county',
+  'waterBody',
   'locality',
   'decimalLatitude',
   'decimalLongitude',
@@ -74,6 +89,7 @@ export const OCCURRENCE_COLUMNS = [
   'family',
   'genus',
   'identifiedBy',
+  'dateIdentified',
   'preparations',
   'associatedMedia',
   'associatedReferences',
@@ -119,51 +135,81 @@ export function localIso(iso: string, tzOffsetMin: number): { iso: string; y: nu
   return { iso: `${y}-${pad(m)}-${pad(d)}T${time}${off}`, y, m, d }
 }
 
-/** The device's UTC offset on the capture date (handles daylight time). */
+/** The device's UTC offset on a date (handles daylight time). */
 export const offsetAt = (iso: string) => new Date(iso).getTimezoneOffset()
+
+export const occurrenceId = (tagId: string) => `${SITE}/specimen/${tagId}`
+export const eventId = (id: string) => `${SITE}/event/${id}`
 
 export function photoFileName(tagId: string, index: number): string {
   return `${tagId}_${index + 1}.jpg`
 }
 
+export function fieldNotesFileName(eventIdValue: string, index: number): string {
+  return `fieldnotes/${eventIdValue}_${index + 1}.jpg`
+}
+
+/** dwc:eventDate: the event's interval, or the capture time without one. */
+function eventDateOf(item: ExportItem, tz: (iso: string) => number) {
+  const { specimen: v, event: e } = item
+  const start = e?.eventDate ?? v.first.capturedAt
+  const s = localIso(start, tz(start))
+  if (e?.eventEnd) return { ...s, iso: `${s.iso}/${localIso(e.eventEnd, tz(e.eventEnd)).iso}` }
+  return s
+}
+
 export function occurrenceRow(
-  { record: r, photos, classification: c = {} }: ExportItem,
+  item: ExportItem,
   prefs: ExportPrefs,
-  tzOffsetMin = offsetAt(r.capturedAt),
+  tz: (iso: string) => number = offsetAt,
 ): Row<typeof OCCURRENCE_COLUMNS> {
-  const when = localIso(r.capturedAt, tzOffsetMin)
-  const species = r.species?.trim() ?? ''
-  const taxon = r.taxon ?? null
+  const { specimen: v, photos, classification: c = {}, event: e } = item
+  const when = eventDateOf(item, tz)
+  const species = v.species
+  const taxon = v.taxon
+  const first = v.first
   const remarks: string[] = []
   if (taxon && taxon.name.toLowerCase() !== species.toLowerCase()) {
     remarks.push(`Matched to iNaturalist taxon ${taxon.name}`)
   }
   if (species && !taxon) remarks.push('Name not matched to iNaturalist')
+  if (v.disagreement) remarks.push(`Identifications disagree: ${v.disagreement.join(' | ')}`)
+  const shared = v.captures.find((r) => r.inat?.observationId)?.inat?.observationId
+  const identifiedAt = v.identification?.identifiedAt ?? v.identification?.capturedAt
   return {
-    occurrenceID: `urn:uuid:${r.id}`,
+    occurrenceID: occurrenceId(v.tagId),
     basisOfRecord: prefs.basisOfRecord,
     institutionCode: prefs.institutionCode.trim(),
     collectionCode: prefs.collectionCode.trim(),
     catalogNumber: '',
-    materialEntityID: `SpeciMap:${r.tagId}`,
-    fieldNumber: '',
-    otherCatalogNumbers: `SpeciMap:${r.tagId}`,
-    recordedBy: prefs.recordedBy.trim(),
+    materialEntityID: `SpeciMap:${v.tagId}`,
+    otherCatalogNumbers: `SpeciMap:${v.tagId}`,
+    individualCount: String(v.individualCount),
+    eventID: e ? eventId(e.id) : '',
+    parentEventID: e?.parentEventId ? eventId(e.parentEventId) : '',
+    fieldNumber: e?.fieldNumber ?? '',
+    recordedBy: e?.recordedBy || prefs.recordedBy.trim(),
     eventDate: when.iso,
     year: String(when.y),
     month: String(when.m),
     day: String(when.d),
-    country: '',
-    stateProvince: '',
-    county: '',
-    locality: '',
-    decimalLatitude: r.lat.toFixed(6),
-    decimalLongitude: r.lng.toFixed(6),
+    samplingProtocol: e?.samplingProtocol ?? '',
+    samplingEffort: e?.samplingEffort ?? '',
+    habitat: e?.habitat ?? '',
+    eventRemarks: e?.eventRemarks ?? '',
+    fieldNotes: (item.fieldNotes ?? []).join(' | '),
+    countryCode: e?.countryCode ?? '',
+    stateProvince: e?.stateProvince ?? '',
+    county: e?.county ?? '',
+    waterBody: e?.waterBody ?? '',
+    locality: e?.locality ?? '',
+    decimalLatitude: first.lat.toFixed(6),
+    decimalLongitude: first.lng.toFixed(6),
     geodeticDatum: 'WGS84',
     coordinateUncertaintyInMeters:
-      r.gpsAccuracyM != null ? String(Math.max(1, Math.round(r.gpsAccuracyM))) : '',
+      first.gpsAccuracyM != null ? String(Math.max(1, Math.round(first.gpsAccuracyM))) : '',
     georeferenceProtocol: 'Phone GPS at time of capture (SpeciMap)',
-    georeferenceRemarks: r.locationAdjusted ? 'Position adjusted by hand on a map' : '',
+    georeferenceRemarks: first.locationAdjusted ? 'Position adjusted by hand on a map' : '',
     scientificName: species,
     verbatimIdentification: species,
     taxonRank: taxon?.rank ?? '',
@@ -176,28 +222,31 @@ export function occurrenceRow(
     family: c.family ?? '',
     genus: c.genus ?? '',
     identifiedBy: species ? prefs.recordedBy.trim() : '',
+    dateIdentified: species && identifiedAt ? localIso(identifiedAt, tz(identifiedAt)).iso : '',
     preparations: prefs.basisOfRecord === 'HumanObservation' ? 'photograph' : '',
     associatedMedia: photos.map((p) => p.fileName).join(' | '),
-    associatedReferences: r.inat?.observationId
-      ? `https://www.inaturalist.org/observations/${r.inat.observationId}`
-      : '',
-    occurrenceRemarks: r.notes.trim(),
+    associatedReferences: shared ? `https://www.inaturalist.org/observations/${shared}` : '',
+    occurrenceRemarks: v.captures
+      .map((r) => r.notes.trim())
+      .filter((n, i, all) => n && all.indexOf(n) === i)
+      .join(' | '),
   }
 }
 
 export function multimediaRows(
-  { record: r, photos }: ExportItem,
+  item: ExportItem,
   prefs: ExportPrefs,
-  tzOffsetMin = offsetAt(r.capturedAt),
+  tz: (iso: string) => number = offsetAt,
 ): Row<typeof MULTIMEDIA_COLUMNS>[] {
-  const created = localIso(r.capturedAt, tzOffsetMin).iso
+  const { specimen: v, photos } = item
+  const created = localIso(v.first.capturedAt, tz(v.first.capturedAt)).iso
   const who = prefs.recordedBy.trim()
   return photos.map((p, i) => ({
-    occurrenceID: `urn:uuid:${r.id}`,
+    occurrenceID: occurrenceId(v.tagId),
     type: 'StillImage',
     format: 'image/jpeg',
     identifier: p.fileName,
-    title: `${formatTagId(r.tagId)} photo ${i + 1}`,
+    title: `${formatTagId(v.tagId)} photo ${i + 1}`,
     description: `${p.width} x ${p.height} px; ${
       p.fullRes ? 'camera original' : 'reduced to 2048 px long edge'
     }`,

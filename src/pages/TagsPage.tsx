@@ -26,7 +26,7 @@ export default function TagsPage() {
   const { session } = useAuth()
   const [batches, setBatches] = useState<BatchRow[]>([])
   const [count, setCount] = useState(52)
-  const [format, setFormat] = useState<TagFormat>('insert')
+  const [format, setFormat] = useState<TagFormat | 'fieldsheet'>('insert')
   const [pageSize, setPageSize] = useState<PageSize>('letter')
   const [label, setLabel] = useState('')
   const [prefix, setPrefix] = useState('')
@@ -91,22 +91,29 @@ export default function TagsPage() {
 
       setBusy('Rendering PDF…')
       // pdf-lib is heavy and print-only: load it on demand.
-      const { generateTagSheetPdf } = await import('../tags/pdf')
       // Stable print order: by registered sequence.
       const { data: ordered } = await supabase
         .from('tags')
         .select('id,seq')
         .eq('batch_id', batch.id)
         .order('seq')
-      const pdf = await generateTagSheetPdf({
-        ids: (ordered ?? []).map((r) => r.id),
-        format,
-        pageSize,
-        prefix: prefix || undefined,
-        label: label || undefined,
-        origin: APP_ORIGIN,
-      })
-      downloadPdf(pdf, `specimap-tags-${label || batch.id.slice(0, 8)}.pdf`)
+      const printIds = (ordered ?? []).map((r) => r.id)
+      if (format === 'fieldsheet') {
+        const { generateFieldSheetPdf } = await import('../tags/fieldsheet')
+        const pdf = await generateFieldSheetPdf({ ids: printIds, pageSize, label: label || undefined, origin: APP_ORIGIN })
+        downloadPdf(pdf, `specimap-field-sheets-${label || batch.id.slice(0, 8)}.pdf`)
+      } else {
+        const { generateTagSheetPdf } = await import('../tags/pdf')
+        const pdf = await generateTagSheetPdf({
+          ids: printIds,
+          format,
+          pageSize,
+          prefix: prefix || undefined,
+          label: label || undefined,
+          origin: APP_ORIGIN,
+        })
+        downloadPdf(pdf, `specimap-tags-${label || batch.id.slice(0, 8)}.pdf`)
+      }
       setBatches((prev) => [
         {
           id: batch.id,
@@ -163,12 +170,18 @@ export default function TagsPage() {
             Style
             <select
               value={format}
-              onChange={(e) => setFormat(e.target.value as TagFormat)}
+              onChange={(e) => {
+                const next = e.target.value as TagFormat | 'fieldsheet'
+                setFormat(next)
+                // One page per field sheet: a tag-sized count is far too many.
+                if (next === 'fieldsheet' && count > 20) setCount(10)
+              }}
               className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2"
             >
               <option value="insert">Insert (inside vial)</option>
               <option value="punch">Punch-hole (under cap)</option>
               <option value="insert_2ml">2mL tube insert</option>
+              <option value="fieldsheet">Field sheets (one event per page)</option>
             </select>
           </label>
           <label className="flex flex-col gap-1 text-sm">

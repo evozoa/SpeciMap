@@ -62,6 +62,8 @@ export interface FinalizeInput {
   notes: string
   species?: string
   taxon?: Taxon | null
+  /** The active collecting event, if any. */
+  eventId?: string
   focusScore: number | null
 }
 

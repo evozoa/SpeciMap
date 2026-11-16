@@ -5,7 +5,9 @@ import { strFromU8, unzipSync } from 'fflate'
 vi.mock('../lib/supabase', () => ({ supabase: {}, PHOTO_BUCKET: 'photos' }))
 
 import { db, type LocalRecord } from '../db/schema'
+import { blankEvent } from '../events/store'
 import { buildPackage } from './package'
+import { specimenView } from '../specimens/view'
 
 const prefs = {
   institutionCode: 'AUM',
@@ -58,11 +60,18 @@ describe('buildPackage', () => {
       ),
     )
 
-    const result = await buildPackage([a, b], prefs)
+    await db.events.add({ ...blankEvent('FS000001X', 'user-1'), fieldNumber: 'MWS 26-014' })
+    await db.records.update(a.id, { eventId: 'FS000001X' })
+    await db.eventPhotos.add({ id: 'p1', eventId: 'FS000001X', blob: new Blob([jpeg]), width: 1, height: 1, bytes: 7, uploaded: 1 })
+    const result = await buildPackage(
+      [specimenView([{ ...a, eventId: 'FS000001X' }]), specimenView([b])],
+      prefs,
+    )
     const files = unzipSync(new Uint8Array(await result.blob.arrayBuffer()))
 
     expect(Object.keys(files).sort()).toEqual([
       'README.txt',
+      'fieldnotes/FS000001X_1.jpg',
       'multimedia.csv',
       'occurrence.csv',
       'photos/7Q4MK2XRC_1.jpg',
@@ -73,6 +82,8 @@ describe('buildPackage', () => {
     const occ = strFromU8(files['occurrence.csv']).replace(/^﻿/, '').split('\r\n')
     expect(occ).toHaveLength(4) // header, 2 rows, trailing newline
     expect(occ[1]).toContain('Centrarchidae,Lepomis')
+    expect(occ[1]).toContain('MWS 26-014')
+    expect(occ[1]).toContain('fieldnotes/FS000001X_1.jpg')
     expect(occ[1]).toContain('7Q4MK2XRC_1.jpg | 7Q4MK2XRC_2.jpg')
     expect(strFromU8(files['multimedia.csv']).split('\r\n')).toHaveLength(5)
     expect(result.warnings).toEqual([])
@@ -82,7 +93,7 @@ describe('buildPackage', () => {
   it('still exports when iNaturalist is unreachable, with a warning', async () => {
     const a = rec('7Q4MK2XRC', 58635)
     vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch') }))
-    const result = await buildPackage([a], prefs, { withPhotos: false })
+    const result = await buildPackage([specimenView([a])], prefs, { withPhotos: false })
     expect(result.fileName).toMatch(/\.csv$/)
     expect(result.warnings[0]).toMatch(/Offline/)
     vi.unstubAllGlobals()
