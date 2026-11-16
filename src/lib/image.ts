@@ -2,6 +2,9 @@
  * Client-side photo re-encoding: JPEG, long edge capped, ~0.8 quality.
  * Keeps uploads reliable on field connections and respects the free-tier
  * storage budget (~300-600KB per photo instead of 3-8MB camera originals).
+ *
+ * Photo vouchers need the camera original instead (see `keepOriginal`):
+ * those bytes are stored untouched, EXIF and all.
  */
 
 export const MAX_LONG_EDGE = 2048
@@ -45,4 +48,19 @@ export async function encodePhotoFile(file: File): Promise<EncodedPhoto> {
   } finally {
     bitmap.close()
   }
+}
+
+/** A camera original kept byte-for-byte (photo-voucher mode). */
+export async function keepOriginal(blob: Blob): Promise<EncodedPhoto> {
+  const bitmap = await createImageBitmap(blob)
+  try {
+    return { blob, width: bitmap.width, height: bitmap.height }
+  } finally {
+    bitmap.close()
+  }
+}
+
+/** True for photos larger than the reduced size, i.e. kept as originals. */
+export function isFullRes(p: { width: number; height: number }): boolean {
+  return Math.max(p.width, p.height) > MAX_LONG_EDGE
 }

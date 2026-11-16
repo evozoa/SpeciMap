@@ -50,6 +50,9 @@ export default function Home() {
           <Link to="/tags" className="text-emerald-400 underline">
             Tag sheets
           </Link>
+          <Link to="/export" className="text-emerald-400 underline">
+            Export
+          </Link>
           <Link to="/settings" className="text-slate-400 underline">
             Settings
           </Link>

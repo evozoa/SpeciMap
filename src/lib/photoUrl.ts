@@ -30,3 +30,12 @@ export function usePhotoUrl(photo: LocalPhoto | undefined): string | null {
   }, [photo])
   return url
 }
+
+/** A photo's bytes: the local blob, or downloaded from storage. */
+export async function loadPhotoBlob(photo: LocalPhoto): Promise<Blob> {
+  if (photo.blob) return photo.blob
+  if (!photo.storagePath) throw new Error('Photo is missing')
+  const { data, error } = await supabase.storage.from(PHOTO_BUCKET).download(photo.storagePath)
+  if (error || !data) throw new Error(error?.message ?? 'Photo download failed')
+  return data
+}

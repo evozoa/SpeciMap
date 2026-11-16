@@ -3,6 +3,36 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../auth/AuthProvider'
 import { supabase } from '../lib/supabase'
 import InatSettings from '../inat/InatSettings'
+import { setPrefs, usePrefs } from '../lib/prefs'
+
+function VoucherSettings() {
+  const { fullRes } = usePrefs('capturePrefs')
+  return (
+    <section className="rounded-lg bg-slate-900 p-4 text-sm">
+      <h2 className="font-semibold">Photo vouchers</h2>
+      <label className="mt-2 flex items-start gap-3">
+        <input
+          type="checkbox"
+          checked={fullRes}
+          onChange={(e) => void setPrefs('capturePrefs', { fullRes: e.target.checked })}
+          className="mt-0.5 h-5 w-5 accent-emerald-500"
+        />
+        <span>
+          Keep full-resolution photos
+          <span className="mt-1 block text-slate-400">
+            For photos a museum will catalog as vouchers. Originals are kept
+            untouched (3-8 MB each instead of ~0.5 MB), so uploads are slower and
+            use more storage. On iPhone, use the <b>Camera app</b> button on the
+            capture screen for full resolution.
+          </span>
+        </span>
+      </label>
+      <Link to="/export" className="mt-3 inline-block text-emerald-400 underline">
+        Export Darwin Core for a museum →
+      </Link>
+    </section>
+  )
+}
 
 export default function SettingsPage() {
   const { session } = useAuth()
@@ -66,6 +96,8 @@ export default function SettingsPage() {
           </Link>
         )}
       </section>
+
+      <VoucherSettings />
 
       <InatSettings />
 

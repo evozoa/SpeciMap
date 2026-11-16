@@ -13,7 +13,7 @@
 import { db, type InatShare, type LocalPhoto, type LocalRecord, type SpeciMapDB } from '../db/schema'
 import { serverEdit } from '../db/drafts'
 import { formatTagId } from '../lib/tagid'
-import { PHOTO_BUCKET, supabase } from '../lib/supabase'
+import { loadPhotoBlob } from '../lib/photoUrl'
 import { INAT_API, InatAuthError, getInatJwt } from './auth'
 
 export interface NewObservation {
@@ -248,13 +248,8 @@ export const inatClient: InatClient = {
   },
 
   async photoBlob(photo) {
-    if (photo.blob) return photo.blob
-    if (!photo.storagePath) throw new InatTerminalError('Photo is missing')
-    const { data, error } = await supabase.storage
-      .from(PHOTO_BUCKET)
-      .download(photo.storagePath)
-    if (error || !data) throw new Error(error?.message ?? 'Photo download failed')
-    return data
+    if (!photo.blob && !photo.storagePath) throw new InatTerminalError('Photo is missing')
+    return loadPhotoBlob(photo)
   },
 }
 

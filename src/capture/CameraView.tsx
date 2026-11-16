@@ -1,7 +1,28 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { computeFocusMetrics } from '../focus/laplacian'
 import { useFocusMeter, type FocusState } from '../focus/useFocusMeter'
-import { encodePhoto, encodePhotoFile, type EncodedPhoto } from '../lib/image'
+import { encodePhoto, encodePhotoFile, keepOriginal, type EncodedPhoto } from '../lib/image'
+import { usePrefs } from '../lib/prefs'
+
+/** Chromium's still-photo API (not in TypeScript's DOM lib). */
+declare class ImageCapture {
+  constructor(track: MediaStreamTrack)
+  takePhoto(): Promise<Blob>
+}
+
+/**
+ * Full sensor resolution where the browser can (Chrome on Android); null
+ * where it can't (iOS Safari), so the caller falls back to the video frame.
+ */
+async function takeFullResStill(stream: MediaStream | null): Promise<EncodedPhoto | null> {
+  const track = stream?.getVideoTracks()[0]
+  if (!track || typeof ImageCapture === 'undefined') return null
+  try {
+    return await keepOriginal(await new ImageCapture(track).takePhoto())
+  } catch {
+    return null
+  }
+}
 
 export interface CapturedPhoto extends EncodedPhoto {
   focusScore: number | null
@@ -62,6 +83,8 @@ export default function CameraView({ onCapture }: Props) {
   const [streaming, setStreaming] = useState(false)
   const [cameraError, setCameraError] = useState<string | null>(null)
   const focus = useFocusMeter(videoRef, streaming)
+  const streamRef = useRef<MediaStream | null>(null)
+  const { fullRes } = usePrefs('capturePrefs')
 
   useEffect(() => {
     let stream: MediaStream | null = null
@@ -80,6 +103,7 @@ export default function CameraView({ onCapture }: Props) {
           stream.getTracks().forEach((t) => t.stop())
           return
         }
+        streamRef.current = stream
         const video = videoRef.current
         if (video) {
           video.srcObject = stream
@@ -101,13 +125,15 @@ export default function CameraView({ onCapture }: Props) {
     const video = videoRef.current
     if (!video || video.videoWidth === 0) return
     const focusScore = scoreStill(video)
-    const photo = await encodePhoto(video, video.videoWidth, video.videoHeight)
+    const photo =
+      (fullRes && (await takeFullResStill(streamRef.current))) ||
+      (await encodePhoto(video, video.videoWidth, video.videoHeight))
     onCapture({ ...photo, focusScore })
-  }, [onCapture])
+  }, [onCapture, fullRes])
 
   async function onFilePicked(file: File | undefined) {
     if (!file) return
-    const photo = await encodePhotoFile(file)
+    const photo = fullRes ? await keepOriginal(file) : await encodePhotoFile(file)
     // No live loop in the fallback path — score the picked image once.
     onCapture({ ...photo, focusScore: null })
   }
@@ -153,6 +179,21 @@ export default function CameraView({ onCapture }: Props) {
           Place the tag beside the specimen
         </span>
       </div>
+      {fullRes && (
+        // The phone's camera app gives true full-resolution originals on
+        // every phone (the in-browser shutter can't on iOS).
+        <label className="absolute bottom-10 left-4 rounded-lg bg-black/60 px-3 py-2 text-xs font-semibold text-white">
+          Camera app
+          <span className="block font-normal text-slate-300">full resolution</span>
+          <input
+            type="file"
+            accept="image/jpeg,image/*"
+            capture="environment"
+            className="hidden"
+            onChange={(e) => void onFilePicked(e.target.files?.[0])}
+          />
+        </label>
+      )}
       <div className="absolute inset-x-0 bottom-8 flex justify-center">
         <button
           onClick={() => void shutter()}
