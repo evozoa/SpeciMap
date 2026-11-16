@@ -7,7 +7,8 @@ import { db } from '../db/schema'
 import { supabase } from '../lib/supabase'
 import { SyncEngine } from './engine'
 import { mergeRemote } from './pull'
-import { fetchRemoteSpecimens, supabaseTransport } from './supabaseTransport'
+import { fetchRemoteSpecimens, specimenTransport, supabaseTransport } from './supabaseTransport'
+import { pullSpecimens, pushSpecimens } from '../specimens/store'
 import { inatShareRunner } from '../inat/share'
 import { taxonResolver } from '../taxa/resolver'
 
@@ -28,6 +29,14 @@ export async function syncAll(): Promise<void> {
     })
   } catch (err) {
     console.warn('Pulling remote records failed', err)
+  }
+  // Specimen-level fields (individual count, reviews), after the captures
+  // that create their server rows.
+  try {
+    await pushSpecimens(specimenTransport)
+    await pullSpecimens(specimenTransport)
+  } catch (err) {
+    console.warn('Specimen sync failed', err)
   }
   // Then the iNaturalist extras, after the records themselves are safe:
   // check unverified species names, and send optional shares.

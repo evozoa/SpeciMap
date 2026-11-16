@@ -4,6 +4,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useAuth } from '../auth/AuthProvider'
 import { stashResumeTag } from '../auth/resume'
 import { db, type Taxon } from '../db/schema'
+import { REUSE_HOURS, REUSE_METRES, distanceMetres } from '../specimens/view'
 import { addDraftPhoto, appendToRecord, finalizeRecord } from '../db/drafts'
 import SpeciesInput from '../components/SpeciesInput'
 import { requestInatShare } from '../db/drafts'
@@ -49,10 +50,13 @@ export default function CapturePage() {
 
   const geo = useGeoWatch(step === 'camera' || step === 'confirm-tag' || step === 'confirm-blurry')
 
-  // One record per tag: if this collector already recorded it, this capture
-  // adds photos and notes to the earliest such record instead.
+  // One capture per tag per collector: if this collector already recorded
+  // it, this capture adds photos and notes to the earliest such capture --
+  // unless they say it's a different fish (a reused tag), which records a
+  // separate capture that the specimen page then flags for review.
   const userId = session?.user.id
-  const existingRecord = useLiveQuery(
+  const [separate, setSeparate] = useState(false)
+  const previousCapture = useLiveQuery(
     async () =>
       tagId && userId
         ? (await db.records.where('tagId').equals(tagId).sortBy('capturedAt')).find(
@@ -61,6 +65,12 @@ export default function CapturePage() {
         : undefined,
     [tagId, userId, recordId],
   )
+  const existingRecord = separate ? undefined : previousCapture
+  const hereNow = geo.fix ? { lat: geo.fix.lat, lng: geo.fix.lng } : null
+  const farFromPrevious =
+    !!previousCapture &&
+    (Date.now() - Date.parse(previousCapture.capturedAt) > REUSE_HOURS * 3_600_000 ||
+      (!!hereNow && distanceMetres(previousCapture, hereNow) > REUSE_METRES))
 
   const pending = useLiveQuery(
     () => db.records.where('status').anyOf('queued', 'syncing', 'error').count(),
@@ -257,11 +267,11 @@ export default function CapturePage() {
         </span>
       </header>
 
-      {existingRecord && step === 'camera' && (
+      {previousCapture && step === 'camera' && (
         <div className="bg-sky-900/60 px-4 py-2 text-sm text-sky-200">
           This tag is already recorded — new photos will be added to that
           record.{' '}
-          <Link className="underline" to={`/record/${existingRecord.id}`}>
+          <Link className="underline" to={`/specimen/${previousCapture.tagId}`}>
             View
           </Link>
         </div>
@@ -345,6 +355,21 @@ export default function CapturePage() {
             record from {new Date(existingRecord.capturedAt).toLocaleString()}.
             Its original time and location are kept.
           </p>
+          {farFromPrevious && (
+            <div className="rounded-lg border border-amber-700/60 bg-amber-950/40 p-3 text-sm text-amber-100">
+              This tag was first recorded{' '}
+              {new Date(existingRecord.capturedAt).toLocaleDateString()}
+              {hereNow &&
+                `, ${(distanceMetres(existingRecord, hereNow) / 1000).toFixed(1)} km from here`}
+              . If this is a different fish, the tag has been reused.
+              <button
+                onClick={() => setSeparate(true)}
+                className="mt-2 block rounded bg-slate-700 px-3 py-1.5 font-semibold"
+              >
+                Different fish: record separately
+              </button>
+            </div>
+          )}
           <SpeciesInput
             value={species}
             taxon={taxon}

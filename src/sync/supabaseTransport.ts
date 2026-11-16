@@ -8,6 +8,7 @@ import { PHOTO_BUCKET, supabase } from '../lib/supabase'
 import type { LocalPhoto, LocalRecord } from '../db/schema'
 import { TerminalSyncError, type SyncTransport } from './engine'
 import type { RemoteSpecimen } from './pull'
+import type { RemoteMaterialEntity, SpecimenTransport } from '../specimens/store'
 
 function photoPath(record: LocalRecord, photo: LocalPhoto): string {
   if (photo.storagePath) return photo.storagePath
@@ -48,6 +49,7 @@ export const supabaseTransport: SyncTransport = {
         captured_at: record.capturedAt,
         notes: record.notes || null,
         species: record.species?.trim() || null,
+        identified_at: record.species?.trim() ? (record.identifiedAt ?? record.capturedAt) : null,
         taxon_id: record.taxon?.id ?? null,
         taxon_name: record.taxon?.name ?? null,
         taxon_rank: record.taxon?.rank ?? null,
@@ -89,6 +91,36 @@ export const supabaseTransport: SyncTransport = {
 
 const PAGE_SIZE = 1000
 
+export const specimenTransport: SpecimenTransport = {
+  async update(s) {
+    const { data, error } = await supabase
+      .from('material_entities')
+      .update({
+        individual_count: s.individualCount,
+        confirmed_capture_ids: s.confirmedCaptureIds,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('tag_id', s.tagId)
+      .select('tag_id')
+    if (error) throw new Error(error.message)
+    return (data?.length ?? 0) > 0
+  },
+
+  async fetchAll() {
+    const all: RemoteMaterialEntity[] = []
+    for (let from = 0; ; from += PAGE_SIZE) {
+      const { data, error } = await supabase
+        .from('material_entities')
+        .select('tag_id, individual_count, confirmed_capture_ids')
+        .order('tag_id')
+        .range(from, from + PAGE_SIZE - 1)
+      if (error) throw new Error(error.message)
+      all.push(...(data as RemoteMaterialEntity[]))
+      if (data.length < PAGE_SIZE) return all
+    }
+  },
+}
+
 /**
  * Fetch every specimen of the signed-in collector (RLS scopes to their own).
  * Paged, because the pull deletes synced local records missing from this
@@ -100,7 +132,7 @@ export async function fetchRemoteSpecimens(): Promise<RemoteSpecimen[]> {
     const { data, error } = await supabase
       .from('specimens')
       .select(
-        'id, tag_id, collector_id, lat, lng, gps_accuracy_m, location_adjusted, captured_at, notes, species, taxon_id, taxon_name, taxon_rank, inat_observation_id, focus_score, client_meta, specimen_photos (id, storage_path, width, height, bytes)',
+        'id, tag_id, collector_id, lat, lng, gps_accuracy_m, location_adjusted, captured_at, notes, species, identified_at, taxon_id, taxon_name, taxon_rank, inat_observation_id, focus_score, client_meta, specimen_photos (id, storage_path, width, height, bytes)',
       )
       .order('id')
       .range(from, from + PAGE_SIZE - 1)

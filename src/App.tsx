@@ -5,7 +5,7 @@ import AuthPage from './auth/AuthPage'
 import CapturePage from './capture/CapturePage'
 import BatchPage from './pages/BatchPage'
 import Home from './pages/Home'
-import RecordPage from './pages/RecordPage'
+import SpecimenPage, { RecordRedirect } from './pages/SpecimenPage'
 import SettingsPage from './pages/SettingsPage'
 import ExportPage from './pages/ExportPage'
 import TagsPage from './pages/TagsPage'
@@ -18,7 +18,8 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/s/:tagId" element={<CapturePage />} />
-          <Route path="/record/:id" element={<RecordPage />} />
+          <Route path="/specimen/:tagId" element={<SpecimenPage />} />
+          <Route path="/record/:id" element={<RecordRedirect />} />
           <Route path="/tags" element={<TagsPage />} />
           <Route path="/tags/:batchId" element={<BatchPage />} />
           <Route path="/auth" element={<AuthPage />} />

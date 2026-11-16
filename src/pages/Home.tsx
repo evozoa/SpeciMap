@@ -4,6 +4,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useAuth } from '../auth/AuthProvider'
 import { db, type LocalRecord } from '../db/schema'
 import { needsNameCheck } from '../db/drafts'
+import { buildSpecimens } from '../specimens/view'
 import { usePhotoUrl } from '../lib/photoUrl'
 import { formatTagId } from '../lib/tagid'
 import { syncAll } from '../sync/triggers'
@@ -31,10 +32,10 @@ function Thumb({ recordId }: { recordId: string }) {
 
 export default function Home() {
   const { session } = useAuth()
-  const records = useLiveQuery(
-    () => db.records.orderBy('capturedAt').reverse().limit(50).toArray(),
-    [],
-  )
+  const specimens = useLiveQuery(async () => {
+    const records = await db.records.toArray()
+    return buildSpecimens(records, await db.specimens.toArray()).slice(0, 50)
+  }, [])
   const pending = useLiveQuery(
     () => db.records.where('status').anyOf('queued', 'error').count(),
     [],
@@ -92,41 +93,57 @@ export default function Home() {
 
       <section className="flex flex-col gap-2">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-          Recent records
+          Recent specimens
         </h2>
-        {records?.length === 0 && (
+        {specimens?.length === 0 && (
           <p className="text-sm text-slate-500">Nothing recorded yet.</p>
         )}
-        {records?.map((r) => {
-          const chip = STATUS_CHIP[r.status]
+        {specimens?.map((v) => {
+          const chip = STATUS_CHIP[v.status]
+          const r = v.identification ?? v.first
+          const shared = v.captures.some((c) => c.inat?.status === 'shared')
           return (
             <Link
-              key={r.id}
-              to={`/record/${r.id}`}
+              key={v.tagId}
+              to={`/specimen/${v.tagId}`}
               className="flex items-center gap-3 rounded-lg bg-slate-900 p-3"
             >
-              <Thumb recordId={r.id} />
+              <Thumb recordId={v.first.id} />
               <div className="min-w-0 flex-1">
                 <div className="font-mono font-semibold">
                   {formatTagId(r.tagId)}
                 </div>
-                {r.species ? (
+                {v.species ? (
                   <div className="truncate text-sm italic text-slate-200">
-                    {r.species}
+                    {v.species}
+                    {v.individualCount > 1 && (
+                      <span className="not-italic text-slate-400"> × {v.individualCount}</span>
+                    )}
                   </div>
                 ) : (
                   <div className="text-sm text-slate-600">No species yet</div>
                 )}
                 <div className="text-xs text-slate-400">
-                  {new Date(r.capturedAt).toLocaleString()}
+                  {new Date(v.first.capturedAt).toLocaleString()}
+                  {v.captures.length > 1 && ` · ${v.captures.length} captures`}
                 </div>
               </div>
+              {v.reuseSuspects.length > 0 && (
+                <span className="rounded-full bg-red-800 px-2 py-1 text-xs" title="Possible tag reuse">
+                  Check tag
+                </span>
+              )}
+              {v.disagreement && (
+                <span className="rounded-full bg-amber-800 px-2 py-1 text-xs" title="Identifications disagree">
+                  IDs differ
+                </span>
+              )}
               {needsNameCheck(r) && (
                 <span className="rounded-full bg-amber-800 px-2 py-1 text-xs" title="Confirm the species name">
                   Check name
                 </span>
               )}
-              {r.inat?.status === 'shared' && (
+              {shared && (
                 <span className="rounded-full bg-slate-700 px-2 py-1 text-xs" title="Shared to iNaturalist">
                   iNat
                 </span>

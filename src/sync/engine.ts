@@ -146,12 +146,15 @@ export class SyncEngine {
         !!fresh &&
         ((fresh.species ?? '') !== (record.species ?? '') ||
           fresh.notes !== record.notes ||
+          fresh.tagId !== record.tagId ||
+          fresh.identifiedAt !== record.identifiedAt ||
           (fresh.taxon?.id ?? null) !== (record.taxon?.id ?? null) ||
           (fresh.inat?.observationId ?? null) !== (record.inat?.observationId ?? null))
       if (unsent > 0 || edited) {
         await this.db.records.update(record.id, {
           status: 'queued',
-          syncStep: 'upsert-specimen',
+          // A capture moved to another tag must register that tag first.
+          syncStep: fresh && fresh.tagId !== record.tagId ? 'ensure-tag' : 'upsert-specimen',
           nextAttemptAt: 0,
         })
         this.rerunRequested = true

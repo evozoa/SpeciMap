@@ -31,6 +31,7 @@ export interface RemoteSpecimen {
   captured_at: string
   notes: string | null
   species?: string | null
+  identified_at?: string | null
   taxon_id?: number | null
   taxon_name?: string | null
   taxon_rank?: string | null
@@ -62,6 +63,7 @@ function remoteFields(s: RemoteSpecimen) {
     capturedAt: new Date(s.captured_at).toISOString(),
     notes: s.notes ?? '',
     species: s.species ?? '',
+    ...(s.identified_at ? { identifiedAt: new Date(s.identified_at).toISOString() } : {}),
     taxon: remoteTaxon(s),
     focusScore: s.focus_score,
     clientMeta: s.client_meta ?? {},

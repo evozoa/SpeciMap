@@ -239,3 +239,18 @@ describe('species taxa', () => {
     expect(after?.status).toBe('synced')
   })
 })
+
+describe('dateIdentified', () => {
+  it('stamps when a name is set or changed, not when only the taxon link changes', async () => {
+    const r = record()
+    await db.records.add(r)
+    await setSpecies(r.id, 'Lepomis megalotis')
+    const first = (await db.records.get(r.id))?.identifiedAt
+    expect(first).toBeTruthy()
+    await new Promise((res) => setTimeout(res, 5))
+    await setSpecies(r.id, 'Lepomis megalotis', { id: 58635, name: 'Lepomis megalotis', rank: 'species' })
+    expect((await db.records.get(r.id))?.identifiedAt).toBe(first)
+    await setSpecies(r.id, 'Lepomis macrochirus')
+    expect((await db.records.get(r.id))?.identifiedAt).not.toBe(first)
+  })
+})

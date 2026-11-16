@@ -16,8 +16,14 @@ export type SyncStep =
   | 'upsert-photo-rows'
   | 'done'
 
+/**
+ * One capture of a specimen: a collector's scan of a vial tag with photos,
+ * GPS fix and identification. A specimen (dwc:MaterialEntity) is all the
+ * captures of one tag; see LocalSpecimen and src/specimens/view.ts.
+ * (Stored in the server's `specimens` table for historical reasons.)
+ */
 export interface LocalRecord {
-  /** Client-generated UUID; the specimen PK on the server too (idempotent sync). */
+  /** Client-generated UUID; the capture's PK on the server too (idempotent sync). */
   id: string
   tagId: string
   collectorId: string
@@ -33,6 +39,8 @@ export interface LocalRecord {
    * records created before this field existed don't have it.
    */
   species?: string
+  /** dwc:dateIdentified: when `species` was last set (ISO). */
+  identifiedAt?: string
   /**
    * The iNaturalist taxon `species` is linked to: picked from the lookup,
    * matched exactly, or confirmed by the collector. Null/absent = unverified.
@@ -113,6 +121,20 @@ export interface LocalPhoto {
   uploaded: 0 | 1
 }
 
+/**
+ * Specimen-level fields (dwc:MaterialEntity), keyed by the vial tag.
+ * A row exists only once something was set or pulled; defaults otherwise.
+ */
+export interface LocalSpecimen {
+  tagId: string
+  /** dwc:individualCount; >1 when the tag is on a lot. */
+  individualCount: number
+  /** Captures confirmed to be this specimen (clears "possible tag reuse"). */
+  confirmedCaptureIds: string[]
+  /** 1 = changed here, not yet on the server. */
+  dirty: 0 | 1
+}
+
 export interface CachedTag {
   id: string
   batchId: string | null
@@ -130,6 +152,7 @@ export class SpeciMapDB extends Dexie {
   tagCache!: EntityTable<CachedTag, 'id'>
   meta!: EntityTable<MetaRow, 'key'>
   taxa!: EntityTable<CachedTaxon, 'id'>
+  specimens!: EntityTable<LocalSpecimen, 'tagId'>
 
   constructor(name = 'specimap') {
     super(name)
@@ -142,6 +165,10 @@ export class SpeciMapDB extends Dexie {
     // v2: on-device cache of iNaturalist taxa for offline species lookup.
     this.version(2).stores({
       taxa: 'id, *terms, usedAt',
+    })
+    // v3: specimen-level fields, one row per vial tag.
+    this.version(3).stores({
+      specimens: 'tagId, dirty',
     })
   }
 }

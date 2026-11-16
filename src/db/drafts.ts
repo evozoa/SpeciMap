@@ -70,6 +70,7 @@ export async function finalizeRecord(input: FinalizeInput): Promise<LocalRecord>
   const record: LocalRecord = {
     ...input,
     species,
+    ...(species ? { identifiedAt: new Date().toISOString() } : {}),
     taxon: await taxonFor(species, input.taxon),
     status: 'queued',
     syncStep: 'ensure-tag',
@@ -122,7 +123,14 @@ export async function appendToRecord(
         : {}
     await db.records.update(targetId, {
       ...inat,
-      ...(name ? { species: name, taxon: linked, taxonReview: null } : {}),
+      ...(name
+        ? {
+            species: name,
+            taxon: linked,
+            taxonReview: null,
+            ...(name !== target.species ? { identifiedAt: new Date().toISOString() } : {}),
+          }
+        : {}),
       notes: joinNotes(target.notes, notes),
       status: 'queued',
       syncStep: 'upsert-specimen',
@@ -158,7 +166,16 @@ export async function setSpecies(
     if ((record.species ?? '') === value && (record.taxon?.id ?? null) === (taxon?.id ?? null)) {
       return
     }
-    await db.records.update(id, serverEdit(record, { species: value, taxon, taxonReview: null }))
+    const renamed = (record.species ?? '').trim() !== value
+    await db.records.update(
+      id,
+      serverEdit(record, {
+        species: value,
+        taxon,
+        taxonReview: null,
+        ...(renamed ? { identifiedAt: new Date().toISOString() } : {}),
+      }),
+    )
   })
 }
 
@@ -184,7 +201,10 @@ export async function confirmTaxon(
     const record = await db.records.get(id)
     if (!record) throw new Error('Record no longer exists')
     const species = keepName ? (record.species ?? '').trim() : t.name
-    await db.records.update(id, serverEdit(record, { species, taxon: t, taxonReview: null }))
+    await db.records.update(
+      id,
+      serverEdit(record, { species, taxon: t, taxonReview: null, identifiedAt: new Date().toISOString() }),
+    )
   })
 }
 
