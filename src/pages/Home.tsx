@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useAuth } from '../auth/AuthProvider'
 import { db, type LocalRecord } from '../db/schema'
+import { needsNameCheck } from '../db/drafts'
 import { usePhotoUrl } from '../lib/photoUrl'
 import { formatTagId } from '../lib/tagid'
 import { syncAll } from '../sync/triggers'
@@ -117,6 +118,11 @@ export default function Home() {
                   {new Date(r.capturedAt).toLocaleString()}
                 </div>
               </div>
+              {needsNameCheck(r) && (
+                <span className="rounded-full bg-amber-800 px-2 py-1 text-xs" title="Confirm the species name">
+                  Check name
+                </span>
+              )}
               {r.inat?.status === 'shared' && (
                 <span className="rounded-full bg-slate-700 px-2 py-1 text-xs" title="Shared to iNaturalist">
                   iNat

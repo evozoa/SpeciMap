@@ -48,6 +48,9 @@ export const supabaseTransport: SyncTransport = {
         captured_at: record.capturedAt,
         notes: record.notes || null,
         species: record.species?.trim() || null,
+        taxon_id: record.taxon?.id ?? null,
+        taxon_name: record.taxon?.name ?? null,
+        taxon_rank: record.taxon?.rank ?? null,
         inat_observation_id: record.inat?.observationId ?? null,
         focus_score: record.focusScore,
         client_meta: record.clientMeta,
@@ -97,7 +100,7 @@ export async function fetchRemoteSpecimens(): Promise<RemoteSpecimen[]> {
     const { data, error } = await supabase
       .from('specimens')
       .select(
-        'id, tag_id, collector_id, lat, lng, gps_accuracy_m, location_adjusted, captured_at, notes, species, inat_observation_id, focus_score, client_meta, specimen_photos (id, storage_path, width, height, bytes)',
+        'id, tag_id, collector_id, lat, lng, gps_accuracy_m, location_adjusted, captured_at, notes, species, taxon_id, taxon_name, taxon_rank, inat_observation_id, focus_score, client_meta, specimen_photos (id, storage_path, width, height, bytes)',
       )
       .order('id')
       .range(from, from + PAGE_SIZE - 1)

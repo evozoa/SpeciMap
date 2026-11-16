@@ -9,6 +9,7 @@ import { SyncEngine } from './engine'
 import { mergeRemote } from './pull'
 import { fetchRemoteSpecimens, supabaseTransport } from './supabaseTransport'
 import { inatShareRunner } from '../inat/share'
+import { taxonResolver } from '../taxa/resolver'
 
 export const syncEngine = new SyncEngine(db, supabaseTransport)
 
@@ -28,8 +29,10 @@ export async function syncAll(): Promise<void> {
   } catch (err) {
     console.warn('Pulling remote records failed', err)
   }
-  // Optional iNaturalist shares go out after the records themselves are safe.
+  // Then the iNaturalist extras, after the records themselves are safe:
+  // check unverified species names, and send optional shares.
   try {
+    await taxonResolver.kick()
     await inatShareRunner.kick()
     await syncEngine.kick() // store any new observation ids on the server
   } catch (err) {

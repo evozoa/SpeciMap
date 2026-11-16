@@ -139,7 +139,8 @@ export class InatShareRunner {
       }
       if (!observationId) {
         const species = record.species?.trim()
-        const taxonId = species ? await this.client.matchTaxon(species) : null
+        const taxonId =
+          record.taxon?.id ?? (species ? await this.client.matchTaxon(species) : null)
         observationId = await this.client.createObservation(
           observationFor({ ...record, inat: share }, taxonId),
         )

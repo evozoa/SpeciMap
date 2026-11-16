@@ -9,8 +9,25 @@ import {
   type LocalPhoto,
   type LocalRecord,
   type SyncStep,
+  type Taxon,
 } from './schema'
 import { STEP_ORDER } from '../sync/engine'
+import { cacheTaxa, cachedExact } from '../taxa/lookup'
+
+/**
+ * The taxon to store with a species name: the one the collector picked if
+ * it still fits the text, else a cached taxon with exactly that name, else
+ * none (the name stays unverified until it is looked up online).
+ */
+async function taxonFor(species: string, picked: Taxon | null | undefined): Promise<Taxon | null> {
+  const name = species.trim()
+  if (!name) return null
+  if (picked) {
+    await cacheTaxa(db, [picked], true)
+    return picked
+  }
+  return cachedExact(db, name)
+}
 
 export interface DraftPhotoInput {
   recordId: string
@@ -44,13 +61,16 @@ export interface FinalizeInput {
   capturedAt: string
   notes: string
   species?: string
+  taxon?: Taxon | null
   focusScore: number | null
 }
 
 export async function finalizeRecord(input: FinalizeInput): Promise<LocalRecord> {
+  const species = input.species?.trim() ?? ''
   const record: LocalRecord = {
     ...input,
-    species: input.species?.trim() ?? '',
+    species,
+    taxon: await taxonFor(species, input.taxon),
     status: 'queued',
     syncStep: 'ensure-tag',
     attempts: 0,
@@ -87,7 +107,9 @@ export async function appendToRecord(
   draftId: string,
   notes: string,
   species = '',
+  taxon: Taxon | null = null,
 ): Promise<void> {
+  const linked = await taxonFor(species, taxon)
   await db.transaction('rw', db.records, db.photos, async () => {
     const target = await db.records.get(targetId)
     if (!target) throw new Error('Record to add to no longer exists')
@@ -100,7 +122,7 @@ export async function appendToRecord(
         : {}
     await db.records.update(targetId, {
       ...inat,
-      ...(name ? { species: name } : {}),
+      ...(name ? { species: name, taxon: linked, taxonReview: null } : {}),
       notes: joinNotes(target.notes, notes),
       status: 'queued',
       syncStep: 'upsert-specimen',
@@ -117,19 +139,76 @@ function earlierStep(a: SyncStep, b: SyncStep): SyncStep {
 }
 
 /**
- * Set a record's species name. The edit is saved locally first; if the
- * record has already been uploaded it is requeued from the specimen step so
- * the change reaches the server. A record mid-upload is caught by the sync
- * engine's stale-snapshot check.
+ * Set a record's species name, with the iNaturalist taxon if one was picked
+ * from the lookup. The edit is saved locally first; if the record has
+ * already been uploaded it is requeued from the specimen step so the change
+ * reaches the server. A record mid-upload is caught by the sync engine's
+ * stale-snapshot check.
  */
-export async function setSpecies(id: string, species: string): Promise<void> {
+export async function setSpecies(
+  id: string,
+  species: string,
+  picked: Taxon | null = null,
+): Promise<void> {
   const value = species.trim()
+  const taxon = await taxonFor(value, picked)
   await db.transaction('rw', db.records, async () => {
     const record = await db.records.get(id)
     if (!record) throw new Error('Record no longer exists')
-    if ((record.species ?? '') === value) return
-    await db.records.update(id, serverEdit(record, { species: value }))
+    if ((record.species ?? '') === value && (record.taxon?.id ?? null) === (taxon?.id ?? null)) {
+      return
+    }
+    await db.records.update(id, serverEdit(record, { species: value, taxon, taxonReview: null }))
   })
+}
+
+/**
+ * Accept a suggested iNaturalist match for an unverified name. By default
+ * the name becomes iNaturalist's; `keepName` links the taxon but keeps the
+ * collector's text (e.g. a synonym their museum uses).
+ */
+export async function confirmTaxon(
+  id: string,
+  taxon: Taxon,
+  { keepName = false } = {},
+): Promise<void> {
+  const t: Taxon = {
+    id: taxon.id,
+    name: taxon.name,
+    rank: taxon.rank,
+    commonName: taxon.commonName ?? null,
+    iconic: taxon.iconic ?? null,
+  }
+  await cacheTaxa(db, [t], true)
+  await db.transaction('rw', db.records, async () => {
+    const record = await db.records.get(id)
+    if (!record) throw new Error('Record no longer exists')
+    const species = keepName ? (record.species ?? '').trim() : t.name
+    await db.records.update(id, serverEdit(record, { species, taxon: t, taxonReview: null }))
+  })
+}
+
+/** Keep an unmatched name as typed; SpeciMap stops asking about it. */
+export async function keepSpeciesAsTyped(id: string): Promise<void> {
+  await db.transaction('rw', db.records, async () => {
+    const record = await db.records.get(id)
+    const species = record?.species?.trim()
+    if (!record || !species) return
+    await db.records.update(id, {
+      taxonReview: { for: species, candidates: record.taxonReview?.candidates ?? [], kept: true },
+    })
+  })
+}
+
+/** True when a record's name awaits the collector's confirmation. */
+export function needsNameCheck(r: LocalRecord): boolean {
+  const species = r.species?.trim()
+  return (
+    !!species &&
+    !r.taxon &&
+    r.taxonReview?.for === species &&
+    !r.taxonReview.kept
+  )
 }
 
 /**

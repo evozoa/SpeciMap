@@ -128,6 +128,18 @@ describe('mergeRemote', () => {
     expect((await db.records.get(b.id))?.species).toBe('')
   })
 
+  it('pulls the linked taxon, keeping the local copy when unchanged', async () => {
+    const a = remote({ species: 'Notropis texanus', taxon_id: 1545618, taxon_name: 'Alburnops texanus', taxon_rank: 'species' })
+    const b = remote({ species: 'Cyprinella sp.' })
+    await pull([a, b])
+    expect((await db.records.get(a.id))?.taxon).toEqual({ id: 1545618, name: 'Alburnops texanus', rank: 'species' })
+    expect((await db.records.get(b.id))?.taxon).toBeNull()
+
+    await db.records.update(a.id, { taxon: { id: 1545618, name: 'Alburnops texanus', rank: 'species', commonName: 'Weed Shiner' } })
+    await pull([a, b])
+    expect((await db.records.get(a.id))?.taxon?.commonName).toBe('Weed Shiner')
+  })
+
   it('marks records another device shared to iNaturalist', async () => {
     const a = remote({ inat_observation_id: 31337 })
     await pull([a])

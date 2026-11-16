@@ -142,7 +142,7 @@ describe('InatShareRunner', () => {
     const r = makeRecord()
     await db.records.add(r)
     const p1 = await addPhoto(db, r.id)
-    await addPhoto(db, r.id)
+    const p2 = await addPhoto(db, r.id)
     const { client, created, photos } = fakeClient()
     let calls = 0
     client.addPhoto = vi.fn(async (obs, _b, name) => {
@@ -152,9 +152,11 @@ describe('InatShareRunner', () => {
     const runner = new InatShareRunner(db, client, { baseDelayMs: 0 })
 
     await runner.kick()
-    expect(await db.records.get(r.id)).toMatchObject({
-      inat: { status: 'queued', observationId: 1001, sharedPhotoIds: [p1], attempts: 1 },
-    })
+    const half = await db.records.get(r.id)
+    expect(half).toMatchObject({ inat: { status: 'queued', observationId: 1001, attempts: 1 } })
+    // Photos go in id order, so either one may be the first sent.
+    expect(half?.inat?.sharedPhotoIds).toHaveLength(1)
+    expect([p1, p2]).toContain(half?.inat?.sharedPhotoIds[0])
 
     await runner.kick()
     expect(created).toHaveLength(1)

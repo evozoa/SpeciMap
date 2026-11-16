@@ -10,7 +10,7 @@
  * Pulled photos carry only their storage path; images are fetched on demand
  * through signed URLs rather than downloaded in bulk.
  */
-import type { InatShare, LocalPhoto, LocalRecord, SpeciMapDB } from '../db/schema'
+import type { InatShare, LocalPhoto, LocalRecord, SpeciMapDB, Taxon } from '../db/schema'
 
 export interface RemotePhoto {
   id: string
@@ -31,6 +31,9 @@ export interface RemoteSpecimen {
   captured_at: string
   notes: string | null
   species?: string | null
+  taxon_id?: number | null
+  taxon_name?: string | null
+  taxon_rank?: string | null
   inat_observation_id?: number | null
   focus_score: number | null
   client_meta: Record<string, unknown> | null
@@ -41,6 +44,11 @@ export interface MergeSummary {
   added: number
   updated: number
   removed: number
+}
+
+function remoteTaxon(s: RemoteSpecimen): Taxon | null {
+  if (!s.taxon_id) return null
+  return { id: s.taxon_id, name: s.taxon_name ?? s.species ?? '', rank: s.taxon_rank ?? '' }
 }
 
 function remoteFields(s: RemoteSpecimen) {
@@ -54,6 +62,7 @@ function remoteFields(s: RemoteSpecimen) {
     capturedAt: new Date(s.captured_at).toISOString(),
     notes: s.notes ?? '',
     species: s.species ?? '',
+    taxon: remoteTaxon(s),
     focusScore: s.focus_score,
     clientMeta: s.client_meta ?? {},
   }
@@ -118,7 +127,10 @@ export async function mergeRemote(
           s.inat_observation_id && !mine.inat
             ? { inat: sharedElsewhere(s.inat_observation_id) }
             : {}
-        puts.push({ ...mine, ...remoteFields(s), ...shared })
+        const fields = remoteFields(s)
+        // Keep the local copy of an unchanged taxon (it has the common name).
+        if (fields.taxon && mine.taxon?.id === fields.taxon.id) fields.taxon = mine.taxon
+        puts.push({ ...mine, ...fields, ...shared })
         summary.updated++
       }
     }

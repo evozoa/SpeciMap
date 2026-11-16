@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useAuth } from '../auth/AuthProvider'
 import { stashResumeTag } from '../auth/resume'
-import { db } from '../db/schema'
+import { db, type Taxon } from '../db/schema'
 import { addDraftPhoto, appendToRecord, finalizeRecord } from '../db/drafts'
 import SpeciesInput from '../components/SpeciesInput'
 import { requestInatShare } from '../db/drafts'
@@ -40,7 +40,10 @@ export default function CapturePage() {
   const [locationAdjusted, setLocationAdjusted] = useState(false)
   const [notes, setNotes] = useState('')
   // null = untouched: on a rescan the box shows the record's existing species.
-  const [speciesInput, setSpeciesInput] = useState<string | null>(null)
+  const [speciesInput, setSpeciesInput] = useState<{ name: string; taxon: Taxon | null } | null>(
+    null,
+  )
+  const onSpecies = (name: string, taxon: Taxon | null) => setSpeciesInput({ name, taxon })
   const [savedStatus, setSavedStatus] = useState<'synced' | 'queued' | null>(null)
   const capturedAtRef = useRef<string | null>(null)
 
@@ -110,7 +113,8 @@ export default function CapturePage() {
     setStep('camera')
   }
 
-  const species = speciesInput ?? existingRecord?.species ?? ''
+  const species = speciesInput ? speciesInput.name : (existingRecord?.species ?? '')
+  const taxon = speciesInput ? speciesInput.taxon : (existingRecord?.taxon ?? null)
   const inatAccount = useInatAccount()
   const inatPrefs = useInatPrefs()
   const canShare = inatConfigured() && !!inatAccount
@@ -134,7 +138,13 @@ export default function CapturePage() {
   async function save(where: LatLng) {
     if (!tagId || !session) return
     if (existingRecord) {
-      await appendToRecord(existingRecord.id, recordId, notes, species)
+      await appendToRecord(
+        existingRecord.id,
+        recordId,
+        notes,
+        speciesInput ? species : '',
+        taxon,
+      )
     } else {
       await finalizeRecord({
         id: recordId,
@@ -147,6 +157,7 @@ export default function CapturePage() {
         capturedAt: capturedAtRef.current ?? new Date().toISOString(),
         notes,
         species,
+        taxon,
         focusScore: bestFocus,
       })
     }
@@ -336,7 +347,8 @@ export default function CapturePage() {
           </p>
           <SpeciesInput
             value={species}
-            onChange={setSpeciesInput}
+            taxon={taxon}
+            onChange={onSpecies}
             className="rounded-lg border border-slate-700 bg-slate-900 px-4 py-3"
           />
           <input
@@ -386,7 +398,8 @@ export default function CapturePage() {
                   </p>
                   <SpeciesInput
                     value={species}
-                    onChange={setSpeciesInput}
+                    taxon={taxon}
+                    onChange={onSpecies}
                     className="rounded-lg border border-slate-700 bg-slate-900 px-4 py-3"
                   />
                   <input

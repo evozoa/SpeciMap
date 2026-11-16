@@ -33,6 +33,17 @@ export interface LocalRecord {
    * records created before this field existed don't have it.
    */
   species?: string
+  /**
+   * The iNaturalist taxon `species` is linked to: picked from the lookup,
+   * matched exactly, or confirmed by the collector. Null/absent = unverified.
+   */
+  taxon?: Taxon | null
+  /**
+   * A pending "did you mean" for an unverified name, found once online.
+   * `for` is the species text it was looked up for; stale once that changes.
+   * Local only (never synced).
+   */
+  taxonReview?: TaxonReview | null
   /** Present once the collector asks to share this record to iNaturalist. */
   inat?: InatShare
   focusScore: number | null
@@ -43,6 +54,33 @@ export interface LocalRecord {
   nextAttemptAt: number
   lastError: string | null
   clientMeta: Record<string, unknown>
+}
+
+/** An iNaturalist taxon (also the shape of the on-device taxon cache). */
+export interface Taxon {
+  id: number
+  name: string
+  rank: string
+  commonName?: string | null
+  /** e.g. 'Actinopterygii', 'Plantae'; for display only. */
+  iconic?: string | null
+}
+
+export interface TaxonReview {
+  for: string
+  /**
+   * Best matches, best first; empty = iNaturalist has nothing close.
+   * `matched` is the name iNaturalist matched (scientific, synonym or common).
+   */
+  candidates: (Taxon & { matched?: string })[]
+  /** The collector chose to keep the name as typed. */
+  kept?: boolean
+}
+
+/** A cached taxon, indexed by the lower-case words of its names. */
+export interface CachedTaxon extends Taxon {
+  terms: string[]
+  usedAt: number
 }
 
 export type InatGeoprivacy = 'open' | 'obscured' | 'private'
@@ -91,6 +129,7 @@ export class SpeciMapDB extends Dexie {
   photos!: EntityTable<LocalPhoto, 'id'>
   tagCache!: EntityTable<CachedTag, 'id'>
   meta!: EntityTable<MetaRow, 'key'>
+  taxa!: EntityTable<CachedTaxon, 'id'>
 
   constructor(name = 'specimap') {
     super(name)
@@ -99,6 +138,10 @@ export class SpeciMapDB extends Dexie {
       photos: 'id, recordId, uploaded',
       tagCache: 'id',
       meta: 'key',
+    })
+    // v2: on-device cache of iNaturalist taxa for offline species lookup.
+    this.version(2).stores({
+      taxa: 'id, *terms, usedAt',
     })
   }
 }

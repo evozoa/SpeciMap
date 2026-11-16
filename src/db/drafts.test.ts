@@ -1,7 +1,17 @@
 import 'fake-indexeddb/auto'
 import { describe, expect, it } from 'vitest'
 import { db } from './schema'
-import { appendToRecord, joinNotes, knownSpecies, requestInatShare, setSpecies } from './drafts'
+import {
+  appendToRecord,
+  confirmTaxon,
+  joinNotes,
+  keepSpeciesAsTyped,
+  knownSpecies,
+  needsNameCheck,
+  requestInatShare,
+  setSpecies,
+} from './drafts'
+import { cacheTaxa } from '../taxa/lookup'
 import type { LocalRecord } from './schema'
 
 describe('joinNotes', () => {
@@ -182,5 +192,50 @@ describe('iNaturalist share requests', () => {
     await db.records.add(r)
     await appendToRecord(r.id, crypto.randomUUID(), 'more')
     expect((await db.records.get(r.id))!.inat).toMatchObject({ status: 'queued', observationId: 9 })
+  })
+})
+
+describe('species taxa', () => {
+  const longear = { id: 58635, name: 'Lepomis megalotis', rank: 'species', commonName: 'Longear Sunfish' }
+  const weed = { id: 1545618, name: 'Alburnops texanus', rank: 'species', commonName: 'Weed Shiner' }
+
+  it('stores a picked taxon and remembers it for offline suggestions', async () => {
+    const r = record()
+    await db.records.add(r)
+    await setSpecies(r.id, 'Lepomis megalotis', longear)
+    expect((await db.records.get(r.id))?.taxon).toEqual(longear)
+    expect((await db.taxa.get(58635))?.usedAt).toBeGreaterThan(0)
+  })
+
+  it('links a typed name that exactly matches a cached taxon, and unlinks on retyping', async () => {
+    await cacheTaxa(db, [longear])
+    const r = record()
+    await db.records.add(r)
+    await setSpecies(r.id, 'lepomis megalotis')
+    expect((await db.records.get(r.id))?.taxon?.id).toBe(58635)
+    await setSpecies(r.id, 'Lepomis sp.')
+    expect((await db.records.get(r.id))?.taxon).toBeNull()
+  })
+
+  it('confirms a suggestion, optionally keeping the typed name', async () => {
+    const a = record({ species: 'longear sunfish', taxonReview: { for: 'longear sunfish', candidates: [longear] } })
+    const b = record({ species: 'Notropis texanus', taxonReview: { for: 'Notropis texanus', candidates: [{ ...weed, matched: 'Notropis texanus' }] } })
+    await db.records.bulkAdd([a, b])
+    expect(needsNameCheck(a)).toBe(true)
+    await confirmTaxon(a.id, longear)
+    await confirmTaxon(b.id, { ...weed, matched: 'Notropis texanus' } as typeof weed, { keepName: true })
+    expect(await db.records.get(a.id)).toMatchObject({ species: 'Lepomis megalotis', taxon: longear, taxonReview: null, status: 'queued' })
+    const after = await db.records.get(b.id)
+    expect(after).toMatchObject({ species: 'Notropis texanus', taxon: { id: 1545618, name: 'Alburnops texanus' } })
+    expect(after?.taxon).not.toHaveProperty('matched')
+  })
+
+  it('stops asking once a name is kept as typed', async () => {
+    const r = record({ species: 'Unknown sp. 3', taxonReview: { for: 'Unknown sp. 3', candidates: [] } })
+    await db.records.add(r)
+    await keepSpeciesAsTyped(r.id)
+    const after = await db.records.get(r.id)
+    expect(needsNameCheck(after!)).toBe(false)
+    expect(after?.status).toBe('synced')
   })
 })
