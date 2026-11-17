@@ -1,7 +1,8 @@
 /**
  * Subsample upload rows and the runner that syncs them (see ../sync/rows.ts).
  */
-import type { LocalSubsample, SpeciMapDB } from '../db/schema'
+import type { Custody, LocalSubsample, SpeciMapDB } from '../db/schema'
+import { custodyFrom } from '../specimens/store'
 import { RowSyncRunner, type RowSyncOptions } from '../sync/rows'
 
 export interface RemoteSubsample {
@@ -14,6 +15,11 @@ export interface RemoteSubsample {
   remarks: string | null
   collected_at: string
   updated_at: string
+  catalog_number?: string | null
+  custodian_user?: string | null
+  custodian_org?: string | null
+  visibility?: Custody['visibility']
+  generalize_public?: boolean
 }
 
 export interface SubsampleTransport {
@@ -47,6 +53,7 @@ export function fromRemote(r: RemoteSubsample): LocalSubsample {
     preservation: r.preservation ?? '',
     remarks: r.remarks ?? '',
     collectedAt: new Date(r.collected_at).toISOString(),
+    custody: custodyFrom(r),
     updatedAt: new Date(r.updated_at).toISOString(),
     status: 'synced',
     attempts: 0,

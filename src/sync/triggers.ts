@@ -21,6 +21,8 @@ import { ScanSyncRunner } from '../scans/sync'
 import { pullSpecimens, pushSpecimens } from '../specimens/store'
 import { inatShareRunner } from '../inat/share'
 import { taxonResolver } from '../taxa/resolver'
+import { incomingTransfers, refreshMemberships } from '../custody/api'
+import { getPrefs } from '../lib/prefs'
 
 export const syncEngine = new SyncEngine(db, supabaseTransport)
 export const eventSync = new EventSyncRunner(db, eventTransport)
@@ -37,6 +39,19 @@ export async function syncAll(): Promise<void> {
   await syncEngine.kick()
   const { data } = await supabase.auth.getSession()
   if (!data.session) return
+  // Collections first: joining one (from an invitation) changes what we can read.
+  try {
+    const userId = data.session.user.id
+    const { recordedBy } = await getPrefs('exportPrefs')
+    if (recordedBy.trim()) {
+      await supabase.from('profiles').update({ display_name: recordedBy.trim() }).eq('id', userId)
+    }
+    const orgs = await refreshMemberships(userId)
+    const incoming = await incomingTransfers(userId, orgs)
+    await db.meta.put({ key: 'incomingTransfers', value: incoming.length })
+  } catch (err) {
+    console.warn('Refreshing collections failed', err)
+  }
   try {
     const syncedBeforeFetch = new Set(
       await db.records.where('status').equals('synced').primaryKeys(),

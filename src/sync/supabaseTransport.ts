@@ -8,7 +8,7 @@ import { PHOTO_BUCKET, supabase } from '../lib/supabase'
 import type { LocalPhoto, LocalRecord } from '../db/schema'
 import { TerminalSyncError, type SyncTransport } from './engine'
 import type { RemoteSpecimen } from './pull'
-import type { RemoteMaterialEntity, SpecimenTransport } from '../specimens/store'
+import { compositionRow, type RemoteMaterialEntity, type SpecimenTransport } from '../specimens/store'
 import { db } from '../db/schema'
 import { eventRow, type EventTransport, type RemoteEvent } from '../events/sync'
 import { scanRow, type RemoteScan, type ScanTransport } from '../scans/sync'
@@ -170,7 +170,9 @@ export const subsampleTransport: SubsampleTransport = {
     for (let from = 0; ; from += PAGE_SIZE) {
       const { data, error } = await supabase
         .from('material_samples')
-        .select('tag_id, parent_tag_id, created_by, event_id, sample_type, preservation, remarks, collected_at, updated_at')
+        .select(
+          'tag_id, parent_tag_id, created_by, event_id, sample_type, preservation, remarks, collected_at, updated_at, catalog_number, custodian_user, custodian_org, visibility, generalize_public',
+        )
         .order('tag_id')
         .range(from, from + PAGE_SIZE - 1)
       if (error) throw new Error(error.message)
@@ -230,6 +232,9 @@ export const specimenTransport: SpecimenTransport = {
       .update({
         individual_count: s.individualCount,
         confirmed_capture_ids: s.confirmedCaptureIds,
+        kind: s.kind ?? 'specimen',
+        composition: compositionRow(s.composition),
+        parent_tag_id: s.parentTagId ?? null,
         updated_at: new Date().toISOString(),
       })
       .eq('tag_id', s.tagId)
@@ -243,7 +248,9 @@ export const specimenTransport: SpecimenTransport = {
     for (let from = 0; ; from += PAGE_SIZE) {
       const { data, error } = await supabase
         .from('material_entities')
-        .select('tag_id, individual_count, confirmed_capture_ids')
+        .select(
+          'tag_id, individual_count, confirmed_capture_ids, kind, composition, parent_tag_id, catalog_number, custodian_user, custodian_org, visibility, generalize_public',
+        )
         .order('tag_id')
         .range(from, from + PAGE_SIZE - 1)
       if (error) throw new Error(error.message)

@@ -7,6 +7,9 @@ import { db } from '../db/schema'
 import { getActiveEvent } from '../events/store'
 import { LocationCheck } from '../scans/ScanViews'
 import { REUSE_HOURS } from '../specimens/view'
+import { setKind } from '../specimens/store'
+import { cachedMemberships, canEdit, publicTagInfo, tagUnclaimed, type PublicInfo } from '../custody/api'
+import { syncAll } from '../sync/triggers'
 import { formatTagId, parseTagId } from '../lib/tagid'
 import { PRESERVATIONS, SAMPLE_TYPES, createSubsample } from '../subsamples/store'
 import { fetchTagFormat } from '../sync/supabaseTransport'
@@ -42,28 +45,109 @@ function TagScanFor() {
   const { session, loading } = useAuth()
   const [params] = useSearchParams()
   const userId = session?.user.id
-  const [chosen, setChosen] = useState<{ rank: TagRank; parentTagId: string | null } | null>(null)
+  const [chosen, setChosen] = useState<{ rank: TagRank | 'mixed_lot'; parentTagId: string | null } | null>(null)
   const role = useLiveQuery(async () => (tagId ? ((await tagRole(tagId)) ?? 'unused') : null), [tagId])
+  const mayLog = useLiveQuery(() => (tagId ? mayLogCheck(tagId, userId) : false), [tagId, userId])
   // Only ever turns true during a visit (a new capture is recent), so saving
   // a capture never turns the camera page into a location check.
   const fieldSession = useLiveQuery(() => recentOwnCapture(tagId, userId), [tagId, userId])
 
-  // Invalid tags and sign-in are handled by the capture page.
+  // Signed out: a public tag shows its public summary; otherwise sign in.
+  if (tagId && !loading && !session) return <PublicOrSignIn tagId={tagId} />
+  // Invalid tags are handled by the capture page.
   if (!tagId || loading || !session) return <CapturePage />
   if (role === undefined) return <Centered>Opening tag…</Centered>
   if (role === 'event') return <Navigate to={`/event/${tagId}`} replace />
-  if (role === 'subsample') return <LocationCheck tagId={tagId} to={`/subsample/${tagId}`} />
+  if (mayLog === undefined) return <Centered>Opening tag…</Centered>
+  // Only the custodian side or the collector logs location checks; anyone
+  // else who can see the record just opens it.
+  if (role === 'subsample') {
+    return mayLog ? <LocationCheck tagId={tagId} to={`/subsample/${tagId}`} /> : <Navigate to={`/subsample/${tagId}`} replace />
+  }
   if (role === 'specimen' && !chosen) {
     if (fieldSession === undefined) return <Centered>Opening tag…</Centered>
     if (fieldSession || params.get('photos')) return <CapturePage />
-    return <LocationCheck tagId={tagId} to={`/specimen/${tagId}`} />
+    return mayLog ? <LocationCheck tagId={tagId} to={`/specimen/${tagId}`} /> : <Navigate to={`/specimen/${tagId}`} replace />
   }
-  if (chosen?.rank === 'specimen') return <CapturePage />
+  if (chosen?.rank === 'specimen' || chosen?.rank === 'mixed_lot') return <CapturePage />
   if (chosen?.rank === 'event') return <Navigate to={`/e/${tagId}`} replace />
   if (chosen?.rank === 'subsample') {
     return <NewSubsample tagId={tagId} userId={session.user.id} parentTagId={chosen.parentTagId} onBack={() => setChosen(null)} />
   }
-  return <RankChooser tagId={tagId} onChoose={(rank, parentTagId) => setChosen({ rank, parentTagId })} />
+  return (
+    <RankChooser
+      tagId={tagId}
+      onChoose={(rank, parentTagId) => {
+        if (rank === 'mixed_lot') void setKind(tagId, 'mixed_lot').then(() => setChosen({ rank, parentTagId }))
+        else setChosen({ rank, parentTagId })
+      }}
+    />
+  )
+}
+
+/** May this user log a location check for the tag (custodian side or collector)? */
+async function mayLogCheck(tagId: string, userId: string | undefined): Promise<boolean> {
+  const orgs = await cachedMemberships()
+  const sub = await db.subsamples.get(tagId)
+  if (sub) return sub.createdBy === userId || canEdit(sub.custody, userId, orgs)
+  const captures = await db.records.where('tagId').equals(tagId).toArray()
+  if (captures.some((r) => r.collectorId === userId)) return true
+  return canEdit((await db.specimens.get(tagId))?.custody, userId, orgs)
+}
+
+/** Signed out: the public summary of a public tag, else a sign-in prompt. */
+function PublicOrSignIn({ tagId }: { tagId: string }) {
+  const [info, setInfo] = useState<PublicInfo | null | undefined>(undefined)
+  useEffect(() => {
+    if (!navigator.onLine) return setInfo(null)
+    void publicTagInfo(tagId).then(setInfo, () => setInfo(null))
+  }, [tagId])
+  if (info === undefined) return <Centered>Opening tag…</Centered>
+  if (!info) return <CapturePage />
+  const where = [info.waterBody, info.county && `${info.county} Co.`, info.stateProvince, info.countryCode].filter(Boolean).join(', ')
+  return (
+    <div className="mx-auto flex min-h-full max-w-lg flex-col gap-4 p-4 text-sm">
+      <header className="flex items-center justify-between">
+        <span className="font-bold">SpeciMap</span>
+        <span className="font-mono text-lg font-bold">{formatTagId(tagId)}</span>
+      </header>
+      <section className="flex flex-col gap-1 rounded-lg bg-slate-900 p-4">
+        <h1 className="text-lg font-bold">
+          {info.rank === 'subsample' ? 'Subsample' : info.rank === 'mixed_lot' ? 'Mixed lot' : 'Specimen'}
+        </h1>
+        {info.species && <p className="text-base italic">{info.species}{(info.individualCount ?? 1) > 1 && <span className="not-italic text-slate-400"> × {info.individualCount}</span>}</p>}
+        {info.composition && info.composition.length > 0 && (
+          <ul>
+            {info.composition.map((p, i) => (
+              <li key={i}>
+                <i>{p.name}</i> × {p.count}
+              </li>
+            ))}
+          </ul>
+        )}
+        {info.sampleType && <p>{[info.sampleType, info.preservation].filter(Boolean).join(', ')}</p>}
+        <p>
+          Held by {info.custodian}
+          {info.catalogNumber && <>, catalog no. <span className="font-mono">{info.catalogNumber}</span></>}
+        </p>
+        {info.year && <p className="text-slate-400">Collected {info.year}{where && ` · ${where}`}</p>}
+        {info.lat != null && info.lng != null && (
+          <p className="text-slate-400">
+            {info.lat}, {info.lng}
+            {info.generalized && ' (rounded to about 10 km)'}
+          </p>
+        )}
+        {info.parent && (
+          <p className="text-slate-400">
+            Taken from specimen <span className="font-mono">{formatTagId(info.parent)}</span>
+          </p>
+        )}
+      </section>
+      <Link to="/auth" className="text-center text-emerald-400 underline">
+        Sign in for more
+      </Link>
+    </div>
+  )
 }
 
 /** True if this collector captured the tag recently (still in the field). */
@@ -74,14 +158,33 @@ async function recentOwnCapture(tagId: string | null, userId: string | undefined
   return captures.some((r) => r.collectorId === userId && r.status !== 'draft' && Date.parse(r.capturedAt) >= since)
 }
 
-const RANKS: { rank: TagRank; title: string; detail: string }[] = [
-  { rank: 'specimen', title: 'Specimen', detail: 'A fish or lot in a vial or jar. Next: photograph it.' },
+const RANKS: { rank: TagRank | 'mixed_lot'; title: string; detail: string }[] = [
+  { rank: 'specimen', title: 'Specimen', detail: 'A fish, or a lot of one species, in a vial or jar. Next: photograph it.' },
+  { rank: 'mixed_lot', title: 'Mixed lot', detail: 'A jar of several species, e.g. a whole seine haul, to sort later.' },
   { rank: 'subsample', title: 'Subsample', detail: 'Tissue taken from a specimen, e.g. a fin clip in a 2 mL tube.' },
   { rank: 'event', title: 'Collecting event', detail: 'A field sheet: the site, date, method and collectors.' },
 ]
 
-function RankChooser({ tagId, onChoose }: { tagId: string; onChoose: (rank: TagRank, parentTagId: string | null) => void }) {
+function RankChooser({ tagId, onChoose }: { tagId: string; onChoose: (rank: TagRank | 'mixed_lot', parentTagId: string | null) => void }) {
   const [hint, setHint] = useState<{ suggestion: Suggestion; format: string | null } | null>(null)
+  // A tag unused on this phone may be in use elsewhere: check before offering it.
+  const [claim, setClaim] = useState<'checking' | 'free' | 'taken'>(navigator.onLine ? 'checking' : 'free')
+  useEffect(() => {
+    if (!navigator.onLine) return
+    let live = true
+    void (async () => {
+      try {
+        if (await tagUnclaimed(tagId)) return live && setClaim('free')
+        await syncAll() // ours or shared with us: pulling it reroutes this page
+        if (live) setClaim('taken')
+      } catch {
+        if (live) setClaim('free')
+      }
+    })()
+    return () => {
+      live = false
+    }
+  }, [tagId])
 
   useEffect(() => {
     let live = true
@@ -110,6 +213,21 @@ function RankChooser({ tagId, onChoose }: { tagId: string; onChoose: (rank: TagR
         ? `you just recorded ${formatTagId(parent)}`
         : null
   const ordered = suggested ? [...RANKS].sort((a, b) => Number(b.rank === suggested) - Number(a.rank === suggested)) : RANKS
+
+  if (claim === 'checking') return <Centered>Checking tag…</Centered>
+  if (claim === 'taken') {
+    return (
+      <Centered>
+        <div className="flex max-w-sm flex-col gap-3 text-center">
+          <p className="font-mono text-lg font-bold text-slate-200">{formatTagId(tagId)}</p>
+          <p>This tag is already in use by someone else, and its record isn't shared with you.</p>
+          <Link to="/" className="text-emerald-400 underline">
+            Home
+          </Link>
+        </div>
+      </Centered>
+    )
+  }
 
   return (
     <div className="mx-auto flex min-h-full max-w-lg flex-col gap-4 p-4">

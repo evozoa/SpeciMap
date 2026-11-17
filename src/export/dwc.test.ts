@@ -10,6 +10,7 @@ import {
   localIso,
   multimediaRows,
   occurrenceRow,
+  occurrenceRows,
   photoFileName,
   toCsv,
 } from './dwc'
@@ -221,5 +222,50 @@ describe('toCsv', () => {
       { a: 'say "hi"', b: 'two\nlines' },
     ])
     expect(csv).toBe('a,b\r\nplain,"has, comma"\r\n"say ""hi""","two\nlines"\r\n')
+  })
+})
+
+describe('mixed lots and custody', () => {
+  const lot = {
+    tagId: '7Q4MK2XRC',
+    individualCount: 15,
+    confirmedCaptureIds: [],
+    kind: 'mixed_lot' as const,
+    composition: [
+      { name: 'Notropis texanus', taxon: { id: 1, name: 'Alburnops texanus', rank: 'species' }, count: 12 },
+      { name: 'Lepomis', taxon: null, count: 3 },
+    ],
+    parentTagId: null,
+    custody: { custodianUser: null, custodianOrg: 'org', visibility: 'private' as const, generalizePublic: true, catalogNumber: 'AUM 12345' },
+    dirty: 0 as const,
+  }
+
+  it('writes one row per species, sharing the lot tag and its photos', () => {
+    const item = {
+      specimen: specimenView([rec({ species: '', taxon: null })], lot),
+      photos: [{ fileName: '7Q4MK2XRC_1.jpg', width: 1, height: 1, fullRes: true }],
+      partClassifications: [{ family: 'Leuciscidae' }, undefined],
+    }
+    const rows = occurrenceRows(item, prefs, CST)
+    expect(rows).toHaveLength(2)
+    expect(rows[0]).toMatchObject({
+      occurrenceID: 'https://specimap.org/specimen/7Q4MK2XRC#1',
+      materialEntityID: 'SpeciMap:7Q4MK2XRC',
+      catalogNumber: 'AUM 12345',
+      scientificName: 'Notropis texanus',
+      individualCount: '12',
+      taxonID: 'https://www.inaturalist.org/taxa/1',
+      family: 'Leuciscidae',
+      taxonRemarks: 'Part 1 of 2 of mixed lot SpeciMap:7Q4MK2XRC',
+    })
+    expect(rows[1]).toMatchObject({ occurrenceID: 'https://specimap.org/specimen/7Q4MK2XRC#2', individualCount: '3', taxonID: '', family: '' })
+    expect(multimediaRows(item, prefs, CST)[0].occurrenceID).toBe('https://specimap.org/specimen/7Q4MK2XRC#1')
+  })
+
+  it('links a sorted lot to its mixed lot', () => {
+    const sorted = specimenView([rec({ tagId: 'EAANEGW67' })], { ...lot, tagId: 'EAANEGW67', kind: 'specimen', composition: [], parentTagId: '7Q4MK2XRC', custody: undefined })
+    const [row] = occurrenceRows({ specimen: sorted, photos: [] }, prefs, CST)
+    expect(row.associatedOccurrences).toBe('sorted from mixed lot: https://specimap.org/specimen/7Q4MK2XRC#1')
+    expect(row.catalogNumber).toBe('')
   })
 })

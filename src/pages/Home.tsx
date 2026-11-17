@@ -44,12 +44,13 @@ export default function Home() {
   )
   const [syncing, setSyncing] = useState(false)
   const activeEvent = useLiveQuery(() => getActiveEvent(), [], null)
+  const incoming = useLiveQuery(async () => ((await db.meta.get('incomingTransfers'))?.value as number | undefined) ?? 0, [], 0)
 
   return (
     <div className="mx-auto flex min-h-full max-w-lg flex-col gap-4 p-4">
       <header className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">SpeciMap</h1>
-        <nav className="flex gap-3 text-sm">
+        <nav className="flex flex-wrap justify-end gap-x-3 gap-y-1 text-sm">
           <Link to="/events" className="text-emerald-400 underline">
             Events
           </Link>
@@ -59,11 +60,26 @@ export default function Home() {
           <Link to="/export" className="text-emerald-400 underline">
             Export
           </Link>
+          <Link to="/transfers" className="text-emerald-400 underline">
+            Transfers
+          </Link>
+          <Link to="/collections" className="text-emerald-400 underline">
+            Collections
+          </Link>
           <Link to="/settings" className="text-slate-400 underline">
             Settings
           </Link>
         </nav>
       </header>
+
+      {incoming > 0 && (
+        <Link to="/transfers" className="rounded-lg bg-sky-900/60 p-4 text-sm text-sky-100">
+          <span className="font-semibold">
+            {incoming} transfer{incoming > 1 ? 's' : ''} waiting for you to accept.
+          </span>{' '}
+          Open to review.
+        </Link>
+      )}
 
       {!session && (
         <Link
@@ -126,7 +142,14 @@ export default function Home() {
                 <div className="font-mono font-semibold">
                   {formatTagId(r.tagId)}
                 </div>
-                {v.species ? (
+                {v.kind === 'mixed_lot' ? (
+                  <div className="truncate text-sm text-slate-200">
+                    Mixed lot
+                    {v.composition.length > 0 && (
+                      <span className="italic text-slate-400"> · {v.composition.map((p) => p.name).join(', ')}</span>
+                    )}
+                  </div>
+                ) : v.species ? (
                   <div className="truncate text-sm italic text-slate-200">
                     {v.species}
                     {v.individualCount > 1 && (

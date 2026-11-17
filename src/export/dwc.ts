@@ -42,6 +42,8 @@ export interface ExportItem {
   event?: LocalEvent
   /** File names of the event's field-sheet photos in the package. */
   fieldNotes?: string[]
+  /** For a mixed lot: the higher classification of each species in it. */
+  partClassifications?: (Classification | undefined)[]
 }
 
 export const OCCURRENCE_COLUMNS = [
@@ -93,6 +95,7 @@ export const OCCURRENCE_COLUMNS = [
   'preparations',
   'associatedMedia',
   'associatedReferences',
+  'associatedOccurrences',
   'occurrenceRemarks',
 ] as const
 
@@ -205,7 +208,7 @@ export function occurrenceRow(
     basisOfRecord: prefs.basisOfRecord,
     institutionCode: prefs.institutionCode.trim(),
     collectionCode: prefs.collectionCode.trim(),
-    catalogNumber: '',
+    catalogNumber: v.custody?.catalogNumber ?? '',
     materialEntityID: `SpeciMap:${v.tagId}`,
     otherCatalogNumbers: `SpeciMap:${v.tagId}`,
     individualCount: String(v.individualCount),
@@ -250,11 +253,52 @@ export function occurrenceRow(
     preparations: prefs.basisOfRecord === 'HumanObservation' ? 'photograph' : '',
     associatedMedia: photos.map((p) => p.fileName).join(' | '),
     associatedReferences: shared ? `https://www.inaturalist.org/observations/${shared}` : '',
+    associatedOccurrences: v.parentTagId ? `sorted from mixed lot: ${occurrenceRowId(v.parentTagId, 1)}` : '',
     occurrenceRemarks: v.captures
       .map((r) => r.notes.trim())
       .filter((n, i, all) => n && all.indexOf(n) === i)
       .join(' | '),
   }
+}
+
+/** A mixed lot's rows are numbered: <specimen URL>#<n>, one per species. */
+export function occurrenceRowId(tagId: string, part: number | null): string {
+  return part ? `${occurrenceId(tagId)}#${part}` : occurrenceId(tagId)
+}
+
+const isMixed = (item: ExportItem) => item.specimen.kind === 'mixed_lot' && item.specimen.composition.length > 0
+
+/**
+ * The occurrence rows for one tag: one row for a specimen; for a mixed lot,
+ * one row per species, sharing the lot's materialEntityID, event and photos.
+ */
+export function occurrenceRows(
+  item: ExportItem,
+  prefs: ExportPrefs,
+  tz: (iso: string) => number = offsetAt,
+): Row<typeof OCCURRENCE_COLUMNS>[] {
+  const base = occurrenceRow(item, prefs, tz)
+  if (!isMixed(item)) return [base]
+  const v = item.specimen
+  return v.composition.map((p, i) => {
+    const c = item.partClassifications?.[i] ?? {}
+    return {
+      ...base,
+      occurrenceID: occurrenceRowId(v.tagId, i + 1),
+      individualCount: String(p.count),
+      scientificName: p.name,
+      verbatimIdentification: p.name,
+      taxonRank: p.taxon?.rank ?? '',
+      taxonID: p.taxon ? `https://www.inaturalist.org/taxa/${p.taxon.id}` : '',
+      taxonRemarks: `Part ${i + 1} of ${v.composition.length} of mixed lot SpeciMap:${v.tagId}`,
+      kingdom: c.kingdom ?? '',
+      phylum: c.phylum ?? '',
+      class: c.class ?? '',
+      order: c.order ?? '',
+      family: c.family ?? '',
+      genus: c.genus ?? '',
+    }
+  })
 }
 
 export function multimediaRows(
@@ -265,8 +309,10 @@ export function multimediaRows(
   const { specimen: v, photos } = item
   const created = localIso(v.first.capturedAt, tz(v.first.capturedAt)).iso
   const who = prefs.recordedBy.trim()
+  // A mixed lot's photos show the whole jar: linked to its first row.
+  const linked = occurrenceRowId(v.tagId, isMixed(item) ? 1 : null)
   return photos.map((p, i) => ({
-    occurrenceID: occurrenceId(v.tagId),
+    occurrenceID: linked,
     type: 'StillImage',
     format: 'image/jpeg',
     identifier: p.fileName,

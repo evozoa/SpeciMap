@@ -6,7 +6,11 @@ import {
   moveCaptureToTag,
   pullSpecimens,
   pushSpecimens,
+  setComposition,
   setIndividualCount,
+  setKind,
+  setParentLot,
+  type RemoteMaterialEntity,
   type SpecimenTransport,
 } from './store'
 
@@ -68,7 +72,7 @@ describe('moveCaptureToTag', () => {
 })
 
 describe('specimen sync', () => {
-  function transport(rows: { tag_id: string; individual_count: number; confirmed_capture_ids: string[] }[]) {
+  function transport(rows: RemoteMaterialEntity[]) {
     const known = new Set(rows.map((r) => r.tag_id))
     const t: SpecimenTransport = {
       update: vi.fn(async (s) => known.has(s.tagId)),
@@ -103,7 +107,49 @@ describe('specimen sync', () => {
       tagId: 'OTHER',
       individualCount: 4,
       confirmedCaptureIds: ['x'],
+      kind: 'specimen',
+      composition: [],
+      parentTagId: null,
+      custody: undefined,
       dirty: 0,
     })
+  })
+
+  it('pulls custody and mixed-lot fields, and drops rows no longer visible', async () => {
+    const db = fresh()
+    await pullSpecimens(transport([{ tag_id: 'GONE', individual_count: 1, confirmed_capture_ids: [] }]), db)
+    await pullSpecimens(
+      transport([
+        {
+          tag_id: 'LOT',
+          individual_count: 15,
+          confirmed_capture_ids: [],
+          kind: 'mixed_lot',
+          composition: [{ name: 'Notropis texanus', count: 12, taxon_id: 1, taxon_name: 'Alburnops texanus', taxon_rank: 'species' }, { name: 'Lepomis', count: 3 }],
+          catalog_number: 'AUM 12345',
+          custodian_user: null,
+          custodian_org: 'org-1',
+          visibility: 'public',
+          generalize_public: true,
+        },
+      ]),
+      db,
+    )
+    expect(await db.specimens.get('GONE')).toBeUndefined()
+    expect(await db.specimens.get('LOT')).toMatchObject({
+      kind: 'mixed_lot',
+      composition: [{ name: 'Notropis texanus', count: 12, taxon: { id: 1, name: 'Alburnops texanus' } }, { name: 'Lepomis', count: 3, taxon: null }],
+      custody: { custodianOrg: 'org-1', visibility: 'public', catalogNumber: 'AUM 12345' },
+    })
+  })
+
+  it('sets a mixed lot composition and its total count', async () => {
+    const db = fresh()
+    await setKind('LOT', 'mixed_lot', db)
+    await setComposition('LOT', [{ name: ' Notropis texanus ', taxon: null, count: 12 }, { name: '', taxon: null, count: 5 }, { name: 'Lepomis', taxon: null, count: 3 }], db)
+    expect(await db.specimens.get('LOT')).toMatchObject({ kind: 'mixed_lot', individualCount: 15, dirty: 1, composition: [{ name: 'Notropis texanus', count: 12 }, { name: 'Lepomis', count: 3 }] })
+    await setParentLot('SORTED', 'LOT', db)
+    expect((await db.specimens.get('SORTED'))?.parentTagId).toBe('LOT')
+    expect(() => setParentLot('LOT', 'LOT', db)).toThrow(/itself/)
   })
 })

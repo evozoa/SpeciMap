@@ -113,11 +113,13 @@ describe('mergeRemote', () => {
     expect(await db.records.get(s.id)).toBeDefined()
   })
 
-  it("never removes another collector's records", async () => {
+  it("removes another collector's records once they're no longer visible", async () => {
+    // e.g. the custodian stopped sharing the specimen with this user
     const other = remote({ collector_id: 'user-2' })
     await pull([other])
-    await pull([])
     expect(await db.records.get(other.id)).toBeDefined()
+    await pull([])
+    expect(await db.records.get(other.id)).toBeUndefined()
   })
 
   it('pulls the species name, and an empty one when the server has none', async () => {

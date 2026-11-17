@@ -11,7 +11,7 @@
  *   - a capture far in time or space from the first is flagged as possible
  *     tag reuse (one tag on two fish) until someone reviews it.
  */
-import type { LocalRecord, LocalSpecimen, SyncStatus, Taxon } from '../db/schema'
+import type { Custody, LocalRecord, LocalSpecimen, LotPart, SyncStatus, Taxon } from '../db/schema'
 
 /** Captures further apart than this are unlikely to be the same fish. */
 export const REUSE_HOURS = 12
@@ -31,6 +31,13 @@ export interface SpecimenView {
   /** Captures that may be a different fish carrying the same tag. */
   reuseSuspects: LocalRecord[]
   individualCount: number
+  /** 'mixed_lot': a jar of several species, listed in `composition`. */
+  kind: 'specimen' | 'mixed_lot'
+  composition: LotPart[]
+  /** The mixed lot this was sorted out of. */
+  parentTagId: string | null
+  /** Server-managed custody; undefined until the specimen has uploaded. */
+  custody: Custody | undefined
   /** The least settled sync status of its captures. */
   status: SyncStatus
   /** Latest capture time, for sorting lists. */
@@ -89,6 +96,10 @@ export function specimenView(captures: LocalRecord[], specimen?: LocalSpecimen):
       .slice(1)
       .filter((r) => !confirmed.has(r.id) && !plausiblySame(first, r)),
     individualCount: specimen?.individualCount ?? 1,
+    kind: specimen?.kind ?? 'specimen',
+    composition: specimen?.composition ?? [],
+    parentTagId: specimen?.parentTagId ?? null,
+    custody: specimen?.custody,
     status: sorted.reduce<SyncStatus>(
       (worst, r) => (STATUS_RANK[r.status] < STATUS_RANK[worst] ? r.status : worst),
       'synced',

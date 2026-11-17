@@ -169,16 +169,12 @@ export async function mergeRemote(
     }
     await db.photos.bulkPut(photoPuts)
 
-    // Synced records gone from the server (merged away) are removed here too.
+    // Synced records gone from the server are removed here too: merged
+    // away, or (for other people's captures) no longer shared with us.
     const gone = await db.records
       .where('status')
       .equals('synced')
-      .filter(
-        (r) =>
-          r.collectorId === scope.collectorId &&
-          scope.syncedBeforeFetch.has(r.id) &&
-          !remoteIds.has(r.id),
-      )
+      .filter((r) => scope.syncedBeforeFetch.has(r.id) && !remoteIds.has(r.id))
       .primaryKeys()
     if (gone.length) {
       await db.photos.where('recordId').anyOf(gone).delete()

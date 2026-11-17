@@ -76,6 +76,9 @@ export default function CapturePage() {
     (Date.now() - Date.parse(previousCapture.capturedAt) > REUSE_HOURS * 3_600_000 ||
       (!!hereNow && distanceMetres(previousCapture, hereNow) > REUSE_METRES))
 
+  // A mixed lot's species are listed on its page, not typed at capture.
+  const mixedLot = useLiveQuery(async () => (tagId ? (await db.specimens.get(tagId))?.kind === 'mixed_lot' : false), [tagId], false)
+
   const pending = useLiveQuery(
     () => db.records.where('status').anyOf('queued', 'syncing', 'error').count(),
     [],
@@ -434,12 +437,16 @@ export default function CapturePage() {
                   <p className="text-center font-mono text-xs text-slate-500">
                     {value.lat.toFixed(6)}, {value.lng.toFixed(6)}
                   </p>
-                  <SpeciesInput
-                    value={species}
-                    taxon={taxon}
-                    onChange={onSpecies}
-                    className="rounded-lg border border-slate-700 bg-slate-900 px-4 py-3"
-                  />
+                  {mixedLot ? (
+                    <p className="text-center text-sm text-slate-400">Mixed lot: list its species on the next page.</p>
+                  ) : (
+                    <SpeciesInput
+                      value={species}
+                      taxon={taxon}
+                      onChange={onSpecies}
+                      className="rounded-lg border border-slate-700 bg-slate-900 px-4 py-3"
+                    />
+                  )}
                   <input
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
@@ -470,6 +477,11 @@ export default function CapturePage() {
               ? 'Uploaded to your collection.'
               : `Queued — will upload when online${pending ? ` (${pending} pending)` : ''}.`}
           </p>
+          {mixedLot && (
+            <Link to={`/specimen/${tagId}`} className="rounded-lg bg-emerald-700 px-5 py-3 font-semibold">
+              List the species in this lot
+            </Link>
+          )}
           <div className="flex gap-3">
             <Link to="/" className="rounded-lg bg-slate-700 px-5 py-3">
               Done

@@ -4,6 +4,8 @@ import AuthCallback from './auth/AuthCallback'
 import AuthPage from './auth/AuthPage'
 import TagScan from './pages/TagScan'
 import SubsamplePage from './pages/SubsamplePage'
+import TransfersPage from './pages/TransfersPage'
+import CollectionsPage from './pages/CollectionsPage'
 import BatchPage from './pages/BatchPage'
 import Home from './pages/Home'
 import SpecimenPage, { RecordRedirect } from './pages/SpecimenPage'
@@ -21,6 +23,8 @@ export default function App() {
           <Route path="/" element={<Home />} />
           <Route path="/s/:tagId" element={<TagScan />} />
           <Route path="/subsample/:tagId" element={<SubsamplePage />} />
+          <Route path="/transfers" element={<TransfersPage />} />
+          <Route path="/collections" element={<CollectionsPage />} />
           <Route path="/specimen/:tagId" element={<SpecimenPage />} />
           <Route path="/record/:id" element={<RecordRedirect />} />
           <Route path="/tags" element={<TagsPage />} />

@@ -133,8 +133,34 @@ export interface LocalSpecimen {
   individualCount: number
   /** Captures confirmed to be this specimen (clears "possible tag reuse"). */
   confirmedCaptureIds: string[]
+  /** A mixed lot is one tag on a jar of several species (e.g. a seine haul). */
+  kind?: 'specimen' | 'mixed_lot'
+  /** A mixed lot's contents: one entry per species. */
+  composition?: LotPart[]
+  /** The mixed lot this specimen or species lot was sorted out of. */
+  parentTagId?: string | null
+  /** Custody, privacy and catalog number: set on the server only. */
+  custody?: Custody
   /** 1 = changed here, not yet on the server. */
   dirty: 0 | 1
+}
+
+/** One species in a mixed lot. */
+export interface LotPart {
+  name: string
+  taxon: Taxon | null
+  count: number
+}
+
+export type Visibility = 'private' | 'shared' | 'public'
+
+/** Who holds a specimen or subsample, and who may see it (server-managed). */
+export interface Custody {
+  custodianUser: string | null
+  custodianOrg: string | null
+  visibility: Visibility
+  generalizePublic: boolean
+  catalogNumber: string | null
 }
 
 /**
@@ -207,6 +233,8 @@ export interface LocalSubsample {
   preservation: string
   remarks: string
   collectedAt: string
+  /** Custody, privacy and catalog number: set on the server only. */
+  custody?: Custody
   updatedAt: string
   status: 'queued' | 'syncing' | 'synced' | 'error'
   attempts: number

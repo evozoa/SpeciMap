@@ -18,6 +18,10 @@ import {
 } from '../specimens/store'
 import { describeSubsample } from '../subsamples/store'
 import { LocationHistory, ScanBanner } from '../scans/ScanViews'
+import CustodyPanel from '../custody/CustodyPanel'
+import { cachedMemberships, canEdit } from '../custody/api'
+import { setComposition, setKind, setParentLot } from '../specimens/store'
+import type { LotPart } from '../db/schema'
 import { locationHistory } from '../scans/store'
 import { syncEngine } from '../sync/triggers'
 
@@ -297,6 +301,132 @@ function CountField({ view }: { view: SpecimenView }) {
   )
 }
 
+// ---- Mixed lots ---------------------------------------------------------------
+
+/** A mixed lot's contents: species and counts. */
+function CompositionEditor({ view, editable }: { view: SpecimenView; editable: boolean }) {
+  const [parts, setParts] = useState<LotPart[]>(view.composition)
+  const saved = JSON.stringify(view.composition)
+  useEffect(() => setParts(JSON.parse(saved) as LotPart[]), [saved])
+  const save = (next: LotPart[]) => {
+    setParts(next)
+    void setComposition(view.tagId, next)
+  }
+  const total = parts.reduce((n, p) => n + (p.count || 0), 0)
+  return (
+    <section className="flex flex-col gap-2 rounded-lg bg-slate-900 p-4 text-sm">
+      <h2 className="font-semibold">
+        Mixed lot contents <span className="text-xs font-normal text-slate-500">({total} individuals)</span>
+      </h2>
+      {parts.map((p, i) => (
+        <div key={i} className="flex items-start gap-2">
+          {editable ? (
+            <SpeciesInput
+              value={p.name}
+              taxon={p.taxon}
+              onChange={(name, taxon) => {
+                const next = parts.map((q, j) => (j === i ? { ...q, name, taxon } : q))
+                if (taxon) save(next)
+                else setParts(next)
+              }}
+              onBlur={() => save(parts)}
+              className="rounded bg-slate-800 px-3 py-2"
+            />
+          ) : (
+            <span className="flex-1 italic">{p.name}</span>
+          )}
+          <input
+            type="number"
+            min={1}
+            inputMode="numeric"
+            value={p.count}
+            disabled={!editable}
+            onChange={(e) => setParts(parts.map((q, j) => (j === i ? { ...q, count: parseInt(e.target.value, 10) || 1 } : q)))}
+            onBlur={() => save(parts)}
+            className="w-20 rounded bg-slate-800 px-3 py-2 text-right"
+          />
+          {editable && (
+            <button onClick={() => save(parts.filter((_, j) => j !== i))} className="px-1 py-2 text-slate-400" aria-label="Remove">
+              ✕
+            </button>
+          )}
+        </div>
+      ))}
+      {editable && (
+        <button onClick={() => setParts([...parts, { name: '', taxon: null, count: 1 }])} className="self-start rounded bg-slate-800 px-3 py-1.5">
+          + Add species
+        </button>
+      )}
+    </section>
+  )
+}
+
+/** Links between a mixed lot and the lots sorted out of it. */
+function LotLinks({ view, editable }: { view: SpecimenView; editable: boolean }) {
+  const sorted = useLiveQuery(() => db.specimens.where('tagId').notEqual(view.tagId).filter((s) => s.parentTagId === view.tagId).toArray(), [view.tagId], [])
+  const [typed, setTyped] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  if (view.kind === 'mixed_lot') {
+    return (
+      <section className="rounded-lg bg-slate-900 p-4 text-sm">
+        <h2 className="mb-1 font-semibold">
+          Sorted out of this lot <span className="text-xs font-normal text-slate-500">({sorted?.length ?? 0})</span>
+        </h2>
+        {sorted?.map((s) => (
+          <Link key={s.tagId} to={`/specimen/${s.tagId}`} className="block font-mono text-emerald-400 underline">
+            {formatTagId(s.tagId)}
+          </Link>
+        ))}
+        <p className="mt-1 text-xs text-slate-500">
+          Tag each sorted species lot or individual as a specimen, then set this lot as its source on its page.
+        </p>
+      </section>
+    )
+  }
+  return (
+    <section className="flex flex-col gap-1 rounded-lg bg-slate-900 p-4 text-sm">
+      <span>
+        Sorted out of mixed lot{' '}
+        {view.parentTagId ? (
+          <>
+            <Link to={`/specimen/${view.parentTagId}`} className="font-mono text-emerald-400 underline">
+              {formatTagId(view.parentTagId)}
+            </Link>
+            {editable && (
+              <button onClick={() => void setParentLot(view.tagId, null)} className="ml-2 text-xs underline">
+                Clear
+              </button>
+            )}
+          </>
+        ) : (
+          <span className="text-slate-500">(none)</span>
+        )}
+      </span>
+      {editable && !view.parentTagId && (
+        <form
+          className="flex gap-2"
+          onSubmit={(e) => {
+            e.preventDefault()
+            const id = parseTagId(typed)
+            if (!id) return setError('Not a valid tag number.')
+            try {
+              void setParentLot(view.tagId, id)
+              setTyped('')
+              setError(null)
+            } catch (err) {
+              setError(err instanceof Error ? err.message : String(err))
+            }
+          }}
+        >
+          <input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Mixed lot's tag, if any" autoCapitalize="characters" className="flex-1 rounded bg-slate-800 px-3 py-2 font-mono placeholder:font-sans placeholder:text-slate-600" />
+          <button className="rounded bg-slate-700 px-3 py-2">Set</button>
+        </form>
+      )}
+      {error && <p className="text-red-400">{error}</p>}
+    </section>
+  )
+}
+
 function CaptureRow({ r, userId }: { r: LocalRecord; userId: string | undefined }) {
   return (
     <li className="flex flex-col gap-0.5 border-t border-slate-800 py-2 first:border-0">
@@ -337,6 +467,7 @@ export default function SpecimenPage() {
   const [params] = useSearchParams()
   const scanId = params.get('scan')
   const navigate = useNavigate()
+  const orgs = useLiveQuery(() => cachedMemberships(), [], [])
   const data = useLiveQuery(async () => {
     if (!tagId) return null
     const captures = (await db.records.where('tagId').equals(tagId).toArray()).filter(
@@ -362,6 +493,7 @@ export default function SpecimenPage() {
     )
   }
   const { view, photos, subsamples, history } = data
+  const editable = canEdit(view.custody, userId, orgs ?? [])
   const failed = view.captures.filter((r) => r.status === 'error')
   const myFirst = view.captures.find((r) => r.collectorId === userId)
 
@@ -394,8 +526,26 @@ export default function SpecimenPage() {
       {view.reuseSuspects.length > 0 && <TagReuse view={view} />}
       {view.disagreement && <Disagreement view={view} userId={userId} />}
 
-      <SpeciesField view={view} userId={userId} />
-      <CountField view={view} />
+      {view.kind === 'mixed_lot' ? (
+        <CompositionEditor view={view} editable={editable} />
+      ) : (
+        <>
+          <SpeciesField view={view} userId={userId} />
+          {editable ? (
+            <CountField view={view} />
+          ) : (
+            <p className="rounded-lg bg-slate-900 p-4 text-sm">Individuals: {view.individualCount}</p>
+          )}
+        </>
+      )}
+      {editable && (
+        <button
+          onClick={() => void setKind(view.tagId, view.kind === 'mixed_lot' ? 'specimen' : 'mixed_lot')}
+          className="self-start text-xs text-slate-400 underline"
+        >
+          {view.kind === 'mixed_lot' ? 'This is a single species, not a mixed lot' : 'This tag is on a mixed lot (several species)'}
+        </button>
+      )}
 
       <div className="grid grid-cols-2 gap-2">
         {photos.map((p) => (
@@ -411,13 +561,19 @@ export default function SpecimenPage() {
         className="h-64 overflow-hidden rounded-lg"
       />
 
-      <Link to={`/s/${view.tagId}?photos=1`} className="rounded-lg bg-slate-800 px-4 py-3 text-center text-sm font-semibold">
-        Add photos
-      </Link>
+      {editable && (
+        <Link to={`/s/${view.tagId}?photos=1`} className="rounded-lg bg-slate-800 px-4 py-3 text-center text-sm font-semibold">
+          Add photos
+        </Link>
+      )}
+
+      <LotLinks view={view} editable={editable} />
 
       {myFirst && <InatRecordPanel record={myFirst} />}
 
       <LocationHistory history={history} userId={userId} />
+
+      <CustodyPanel tagId={view.tagId} custody={view.custody} userId={userId} />
 
       <section className="rounded-lg bg-slate-900 p-4 text-sm">
         <h2 className="mb-1 font-semibold">

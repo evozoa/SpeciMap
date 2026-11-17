@@ -5,6 +5,8 @@ import { useAuth } from '../auth/AuthProvider'
 import { db, type LocalSubsample } from '../db/schema'
 import { LocationHistory, ScanBanner } from '../scans/ScanViews'
 import { locationHistory, type HistoryEntry } from '../scans/store'
+import CustodyPanel from '../custody/CustodyPanel'
+import { cachedMemberships, canEdit } from '../custody/api'
 import { formatTagId } from '../lib/tagid'
 import { PRESERVATIONS, SAMPLE_TYPES, updateSubsample } from '../subsamples/store'
 import { subsampleSync } from '../sync/triggers'
@@ -15,7 +17,7 @@ const kick = () => {
 
 type Key = 'sampleType' | 'preservation' | 'remarks'
 
-function Field({ s, k, label, term, options }: { s: LocalSubsample; k: Key; label: string; term?: string; options?: string[] }) {
+function Field({ s, k, label, term, options, editable }: { s: LocalSubsample; k: Key; label: string; term?: string; options?: string[]; editable: boolean }) {
   const saved = s[k]
   const [value, setValue] = useState(saved)
   useEffect(() => setValue(saved), [saved])
@@ -28,6 +30,7 @@ function Field({ s, k, label, term, options }: { s: LocalSubsample; k: Key; labe
       <input
         list={options ? id : undefined}
         value={value}
+        disabled={!editable}
         onChange={(e) => setValue(e.target.value)}
         onBlur={() => {
           if (value.trim() !== saved) void updateSubsample(s.tagId, { [k]: value.trim() }).then(kick)
@@ -51,6 +54,7 @@ export default function SubsamplePage() {
   const [params] = useSearchParams()
   const scanId = params.get('scan')
   const { session } = useAuth()
+  const orgs = useLiveQuery(() => cachedMemberships(), [], [])
   const data = useLiveQuery(async () => {
     if (!tagId) return null
     const s = await db.subsamples.get(tagId)
@@ -85,6 +89,7 @@ export default function SubsamplePage() {
     )
   }
   const { s, species, parentKnown, event, history } = data
+  const editable = canEdit(s.custody, session?.user.id, orgs ?? [])
 
   return (
     <div className="mx-auto flex min-h-full max-w-lg flex-col gap-4 p-4 text-sm">
@@ -148,12 +153,14 @@ export default function SubsamplePage() {
       </section>
 
       <section className="flex flex-col gap-3 rounded-lg bg-slate-900 p-4">
-        <Field s={s} k="sampleType" label="Sample type" term="materialSampleType" options={SAMPLE_TYPES} />
-        <Field s={s} k="preservation" label="Preservation" term="preparations" options={PRESERVATIONS} />
-        <Field s={s} k="remarks" label="Remarks" />
+        <Field s={s} k="sampleType" label="Sample type" term="materialSampleType" options={SAMPLE_TYPES} editable={editable} />
+        <Field s={s} k="preservation" label="Preservation" term="preparations" options={PRESERVATIONS} editable={editable} />
+        <Field s={s} k="remarks" label="Remarks" editable={editable} />
       </section>
 
       <LocationHistory history={history} userId={session?.user.id} />
+
+      <CustodyPanel tagId={s.tagId} custody={s.custody} userId={session?.user.id} />
     </div>
   )
 }

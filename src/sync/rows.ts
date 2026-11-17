@@ -105,14 +105,29 @@ export class RowSyncRunner<T extends SyncedRow, R> {
     }
   }
 
-  /** Adds rows from other devices; refreshes ones with nothing to upload. */
+  /**
+   * Adds rows from other devices and refreshes ones with nothing to upload.
+   * Rows that were synced before the fetch but are no longer on the server
+   * (deleted, or no longer visible to this user) are removed.
+   */
   async pull(): Promise<void> {
+    const syncedBefore = new Set(await this.table.where('status').equals('synced').primaryKeys())
     const remote = await this.spec.fetchAll()
     await this.db.transaction('rw', this.table, async () => {
-      const local = await this.table.bulkGet(remote.map(this.spec.remoteKey))
+      const remoteKeys = new Set(remote.map(this.spec.remoteKey))
+      const local = await this.table.bulkGet([...remoteKeys])
       await this.table.bulkPut(
         remote.filter((_, i) => !local[i] || local[i]!.status === 'synced').map(this.spec.fromRemote),
       )
+      const gone = await this.table
+        .where('status')
+        .equals('synced')
+        .filter((r) => {
+          const k = this.spec.key(r)
+          return syncedBefore.has(k) && !remoteKeys.has(k) && !(r as { deleted?: boolean }).deleted
+        })
+        .primaryKeys()
+      if (gone.length) await this.table.bulkDelete(gone)
     })
   }
 }

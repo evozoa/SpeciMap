@@ -18,7 +18,7 @@ import {
   fieldNotesFileName,
   locationCheckRow,
   multimediaRows,
-  occurrenceRow,
+  occurrenceRows,
   photoFileName,
   subsampleExportRow,
   toCsv,
@@ -70,7 +70,10 @@ async function itemsFor(
   warnings: string[],
 ): Promise<{ items: ExportItem[]; fieldNotes: Map<string, LocalEventPhoto[]> }> {
   let classes = new Map<number, Classification>()
-  const taxonIds = specimens.flatMap((v) => (v.taxon ? [v.taxon.id] : []))
+  const taxonIds = specimens.flatMap((v) => [
+    ...(v.taxon ? [v.taxon.id] : []),
+    ...v.composition.flatMap((p) => (p.taxon ? [p.taxon.id] : [])),
+  ])
   if (taxonIds.length) {
     try {
       classes = await fetchClassifications(taxonIds)
@@ -101,6 +104,7 @@ async function itemsFor(
       specimen: v,
       photos,
       classification: v.taxon ? classes.get(v.taxon.id) : undefined,
+      partClassifications: v.composition.map((p) => (p.taxon ? classes.get(p.taxon.id) : undefined)),
       event: evId ? events.get(evId) : undefined,
       fieldNotes: evId ? (fieldNotes.get(evId) ?? []).map((_, i) => fieldNotesFileName(evId, i)) : [],
     })
@@ -134,9 +138,12 @@ Identifiers
   parentEventID      Set when several collectors' field sheets were linked
                      into one collecting event.
   fieldNumber        The collector's field number for the event.
-  catalogNumber      Blank: assigned by the museum. Please return a list of
-                     materialEntityID -> catalogNumber so SpeciMap can
-                     record it.
+  catalogNumber      The holding collection's number, once it has accepted
+                     custody in SpeciMap (blank until then).
+  Mixed lots         One tag on a jar of several species: one row per
+                     species, occurrenceID <specimen URL>#<n>, sharing the
+                     lot's materialEntityID. Lots sorted out of a mixed lot
+                     name it in associatedOccurrences.
 
 Notes
   basisOfRecord is ${prefs.basisOfRecord}${prefs.basisOfRecord === 'HumanObservation' ? ' (photo voucher; preparations = photograph)' : ''}.
@@ -162,7 +169,7 @@ export async function buildPackage(
 ): Promise<PackageResult> {
   const warnings: string[] = []
   const { items, fieldNotes } = await itemsFor(specimens, withPhotos, warnings)
-  const occurrence = toCsv(OCCURRENCE_COLUMNS, items.map((it) => occurrenceRow(it, prefs)))
+  const occurrence = toCsv(OCCURRENCE_COLUMNS, items.flatMap((it) => occurrenceRows(it, prefs)))
   const multimedia = toCsv(MULTIMEDIA_COLUMNS, items.flatMap((it) => multimediaRows(it, prefs)))
   const stamp = new Date().toISOString().slice(0, 10)
 
