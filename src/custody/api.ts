@@ -39,6 +39,8 @@ export interface Transfer {
   created_by: string
   created_at: string
   responded_at: string | null
+  /** Transfers sent together share a batch. */
+  batch_id: string | null
 }
 
 export interface Share {
@@ -139,7 +141,8 @@ export function canCurate(c: Custody | undefined, userId: string | undefined, or
 // ---- Transfers ----------------------------------------------------------
 
 export interface TransferInput {
-  tagId: string
+  /** One tag, or several sent as a batch. */
+  tagIds: string[]
   to: Party
   purpose: Purpose
   note: string
@@ -148,11 +151,13 @@ export interface TransferInput {
   place: string
 }
 
+/** Start a transfer; several tags go as one all-or-nothing batch. */
 export async function startTransfer(t: TransferInput): Promise<string> {
   const { p_org, p_email } = party(t.to)
+  const one = t.tagIds.length === 1
   return check(
-    await supabase.rpc('start_transfer', {
-      p_tag: t.tagId,
+    await supabase.rpc(one ? 'start_transfer' : 'start_transfers', {
+      ...(one ? { p_tag: t.tagIds[0] } : { p_tags: t.tagIds }),
       p_to_org: p_org,
       p_to_email: p_email,
       p_purpose: t.purpose,
@@ -173,8 +178,28 @@ export async function cancelTransfer(id: string) {
   check(await supabase.rpc('cancel_transfer', { p_id: id }))
 }
 
+/** Accept or decline a whole batch; catalog numbers keyed by tag. */
+export async function respondBatch(batchId: string, accept: boolean, catalog: Record<string, string> = {}) {
+  const numbers = Object.fromEntries(Object.entries(catalog).filter(([, v]) => v.trim()))
+  return check(await supabase.rpc('respond_transfers', { p_batch: batchId, p_accept: accept, p_catalog: numbers })) as number
+}
+
+export async function cancelBatch(batchId: string) {
+  return check(await supabase.rpc('cancel_transfers', { p_batch: batchId })) as number
+}
+
+/** Transfers grouped by batch (a transfer sent alone is its own group), oldest first. */
+export function groupByBatch(transfers: Transfer[]): Transfer[][] {
+  const groups = new Map<string, Transfer[]>()
+  for (const t of transfers) {
+    const key = t.batch_id ?? t.id
+    groups.set(key, [...(groups.get(key) ?? []), t])
+  }
+  return [...groups.values()]
+}
+
 const TRANSFER_COLUMNS =
-  'id, tag_id, from_user, from_org, from_label, to_user, to_org, to_label, purpose, note, scan_id, status, catalog_number, created_by, created_at, responded_at'
+  'id, tag_id, from_user, from_org, from_label, to_user, to_org, to_label, purpose, note, scan_id, status, catalog_number, created_by, created_at, responded_at, batch_id'
 
 /** A tag's chain of custody, oldest first. */
 export async function transfersFor(tagId: string): Promise<Transfer[]> {
@@ -201,7 +226,7 @@ export async function outgoingTransfers(userId: string): Promise<Transfer[]> {
         .select(TRANSFER_COLUMNS)
         .eq('created_by', userId)
         .order('created_at', { ascending: false })
-        .limit(50),
+        .limit(500),
     ) ?? []
   )
 }

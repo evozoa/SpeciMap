@@ -88,7 +88,8 @@ function PartyInput({ onChange }: { onChange: (p: Party | null) => void }) {
   )
 }
 
-function TransferForm({ tagId, onDone, onCancel }: { tagId: string; onDone: () => void; onCancel: () => void }) {
+/** Transfer one tag, or several as an all-or-nothing batch. */
+export function TransferForm({ tagIds, onDone, onCancel }: { tagIds: string[]; onDone: () => void; onCancel: () => void }) {
   const [to, setTo] = useState<Party | null>(null)
   const [purpose, setPurpose] = useState<Purpose>('accession')
   const [note, setNote] = useState('')
@@ -104,7 +105,7 @@ function TransferForm({ tagId, onDone, onCancel }: { tagId: string; onDone: () =
     setBusy(true)
     setError(null)
     try {
-      await startTransfer({ tagId, to, purpose, note, place, fix: geo.fix })
+      await startTransfer({ tagIds, to, purpose, note, place, fix: geo.fix })
       onDone()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -114,7 +115,9 @@ function TransferForm({ tagId, onDone, onCancel }: { tagId: string; onDone: () =
 
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-slate-700 p-3">
-      <h3 className="font-semibold">Transfer custody</h3>
+      <h3 className="font-semibold">
+        Transfer custody{tagIds.length > 1 && ` of ${tagIds.length} items`}
+      </h3>
       <PartyInput onChange={onParty} />
       <select value={purpose} onChange={(e) => setPurpose(e.target.value as Purpose)} className="rounded bg-slate-800 px-3 py-2">
         {PURPOSES.map((p) => (
@@ -134,6 +137,7 @@ function TransferForm({ tagId, onDone, onCancel }: { tagId: string; onDone: () =
       <p className="text-xs text-slate-500">
         Custody changes only when the recipient accepts. After that they control who can see it; you will always see
         what you collected and where it is.
+        {tagIds.length > 1 && ' If any item cannot be sent, none are, and the error names it.'}
       </p>
       {error && <p className="text-red-400">{error}</p>}
       <div className="flex gap-3">
@@ -141,7 +145,7 @@ function TransferForm({ tagId, onDone, onCancel }: { tagId: string; onDone: () =
           Cancel
         </button>
         <button onClick={() => void submit()} disabled={busy} className="flex-1 rounded bg-emerald-600 px-3 py-2 font-semibold disabled:opacity-50">
-          Send transfer
+          {tagIds.length > 1 ? `Send ${tagIds.length} items` : 'Send transfer'}
         </button>
       </div>
     </div>
@@ -303,7 +307,7 @@ export default function CustodyPanel({ tagId, custody, userId }: { tagId: string
               {!pending &&
                 (transferring ? (
                   <TransferForm
-                    tagId={tagId}
+                    tagIds={[tagId]}
                     onCancel={() => setTransferring(false)}
                     onDone={() => {
                       setTransferring(false)

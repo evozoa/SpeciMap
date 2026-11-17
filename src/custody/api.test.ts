@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 vi.mock('../lib/supabase', () => ({ supabase: {}, PHOTO_BUCKET: 'photos' }))
 
 import type { Custody } from '../db/schema'
-import { canCurate, canEdit, type Membership } from './api'
+import { canCurate, canEdit, groupByBatch, type Membership, type Transfer } from './api'
 
 const held = (over: Partial<Custody>): Custody => ({
   custodianUser: null,
@@ -33,5 +33,13 @@ describe('custody permissions', () => {
 
   it('treats records not yet uploaded as the creator\'s', () => {
     expect(canEdit(undefined, 'me', [])).toBe(true)
+  })
+})
+
+describe('groupByBatch', () => {
+  it('groups a batch together and keeps single transfers apart', () => {
+    const t = (id: string, batch: string | null) => ({ id, batch_id: batch }) as Transfer
+    const groups = groupByBatch([t('1', 'B'), t('2', null), t('3', 'B'), t('4', null)])
+    expect(groups.map((g) => g.map((x) => x.id))).toEqual([['1', '3'], ['2'], ['4']])
   })
 })
