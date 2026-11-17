@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useAuth } from '../auth/AuthProvider'
 import { cachedMemberships, canCurate } from '../custody/api'
@@ -9,10 +9,11 @@ import { eventIdOf } from '../export/package'
 import { formatTagId } from '../lib/tagid'
 import { buildSpecimens } from '../specimens/view'
 import { describeSubsample } from '../subsamples/store'
+import { SIZE_NAMES } from '../boxes/store'
 
 interface Item {
   tagId: string
-  kind: 'specimen' | 'mixed_lot' | 'subsample'
+  kind: 'specimen' | 'mixed_lot' | 'subsample' | 'container'
   label: string
   at: string
   eventId: string | null
@@ -37,6 +38,7 @@ export default function BatchTransferPage() {
   const [withSubsamples, setWithSubsamples] = useState(true)
   const [picked, setPicked] = useState<Set<string>>(new Set())
   const [sending, setSending] = useState(false)
+  const [params] = useSearchParams()
 
   const data = useLiveQuery(async () => {
     const orgs = await cachedMemberships()
@@ -67,8 +69,41 @@ export default function BatchTransferPage() {
       if (!canCurate(s.custody, userId, orgs)) continue
       items.push({ tagId: s.tagId, kind: 'subsample', label: `Subsample: ${describeSubsample(s)} of ${formatTagId(s.parentTagId)}`, at: s.collectedAt, eventId: s.eventId })
     }
-    return { items, events, notUploaded }
+    for (const b of await db.boxes.toArray()) {
+      if (!b.custody) {
+        if (b.createdBy === userId) notUploaded++
+        continue
+      }
+      if (!canCurate(b.custody, userId, orgs)) continue
+      items.push({ tagId: b.tagId, kind: 'container', label: `${SIZE_NAMES[b.size]}${b.label ? `: ${b.label}` : ''}`, at: b.updatedAt, eventId: null })
+    }
+    // What's inside each container, to select it along with the container.
+    const inside = new Map<string, string[]>()
+    for (const p of await db.placements.toArray()) {
+      if (p.deleted) continue
+      inside.set(p.boxTagId, [...(inside.get(p.boxTagId) ?? []), p.itemTagId])
+    }
+    return { items, events, notUploaded, inside }
   }, [userId])
+
+  /** A container and everything in it (nested), that this user can send. */
+  const withContents = (id: string): string[] => {
+    const sendable = new Set(data?.items.map((it) => it.tagId))
+    const out: string[] = []
+    const walk = (t: string, depth: number) => {
+      if (sendable.has(t)) out.push(t)
+      if (depth < 4) for (const c of data?.inside.get(t) ?? []) walk(c, depth + 1)
+    }
+    walk(id, 0)
+    return out
+  }
+
+  // ?box=<tag>: start with that container and its contents selected.
+  const preset = params.get('box')
+  useEffect(() => {
+    if (preset && data) setPicked(new Set(withContents(preset)))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preset, !!data])
 
   const groups = useMemo<Group[]>(() => {
     if (!data) return []
@@ -82,8 +117,10 @@ export default function BatchTransferPage() {
     for (const it of shown) {
       const e = it.eventId ? data.events.get(it.eventId) : undefined
       const day = new Date(it.at).toLocaleDateString()
-      const key = it.eventId ?? `day:${day}`
-      const title = it.eventId
+      const key = it.kind === 'container' ? 'storage' : (it.eventId ?? `day:${day}`)
+      const title = it.kind === 'container'
+        ? 'Storage: boxes, racks and shelves (selecting one selects its contents)'
+        : it.eventId
         ? `Event ${e?.fieldNumber || formatTagId(it.eventId)}${e?.locality ? `, ${e.locality}` : ''} · ${new Date(e?.eventDate ?? it.at).toLocaleDateString()}`
         : `No event · ${day}`
       if (!byKey.has(key)) byKey.set(key, { key, title, items: [] })
@@ -155,7 +192,7 @@ export default function BatchTransferPage() {
                     <input
                       type="checkbox"
                       checked={picked.has(it.tagId)}
-                      onChange={(e) => toggle([it.tagId], e.target.checked)}
+                      onChange={(e) => toggle(it.kind === 'container' ? withContents(it.tagId) : [it.tagId], e.target.checked)}
                       className="h-4 w-4 accent-emerald-500"
                     />
                     <span className="font-mono">{formatTagId(it.tagId)}</span>

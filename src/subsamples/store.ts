@@ -23,9 +23,11 @@ export async function createSubsample(input: NewSubsample, db: SpeciMapDB = defa
   const tagId = input.tagId
   const parent = input.parentTagId
   if (tagId === parent) throw new Error('A tag cannot be a subsample of itself')
-  await db.transaction('rw', db.subsamples, db.events, db.records, async () => {
+  await db.transaction('rw', db.subsamples, db.events, db.records, db.boxes, async () => {
     if (await db.subsamples.get(tagId)) throw new Error('This tag is already a subsample')
     if (await db.events.get(tagId)) throw new Error('This tag is already a collecting event')
+    if (await db.boxes.get(tagId)) throw new Error('This tag is already a box')
+    if (await db.boxes.get(parent)) throw new Error('The parent is a box, not a specimen')
     const captures = await db.records.where('tagId').equals(tagId).toArray()
     if (captures.some((r) => r.status !== 'draft')) throw new Error('This tag is already a specimen')
     if (await db.subsamples.get(parent)) throw new Error('The parent is a subsample, not a specimen')

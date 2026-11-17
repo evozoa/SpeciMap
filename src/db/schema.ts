@@ -267,6 +267,42 @@ export interface LocalScan {
   lastError: string | null
 }
 
+/**
+ * A storage container with its own tag: a 2 mL / 20 mL box (items at
+ * A1-J10), a cardboard box of fixed specimens (numbered), a freezer rack
+ * (boxes in numbered slots) or a museum shelf (boxes and racks, numbered).
+ */
+export interface LocalBox {
+  tagId: string
+  size: '20ml' | '2ml' | 'carton' | 'rack' | 'shelf'
+  label: string
+  capacity: number
+  createdBy: string
+  /** Custody and privacy: set on the server only. */
+  custody?: Custody
+  updatedAt: string
+  status: 'queued' | 'syncing' | 'synced' | 'error'
+  attempts: number
+  nextAttemptAt: number
+  lastError: string | null
+}
+
+/** Where an item (specimen, lot or subsample) is stored: one box at a time. */
+export interface LocalPlacement {
+  itemTagId: string
+  boxTagId: string
+  position: string
+  placedBy: string
+  placedAt: string
+  /** Taken out of the box; kept until the removal reaches the server. */
+  deleted?: boolean
+  updatedAt: string
+  status: 'queued' | 'syncing' | 'synced' | 'error'
+  attempts: number
+  nextAttemptAt: number
+  lastError: string | null
+}
+
 export interface MetaRow {
   key: string
   value: unknown
@@ -283,6 +319,8 @@ export class SpeciMapDB extends Dexie {
   eventPhotos!: EntityTable<LocalEventPhoto, 'id'>
   subsamples!: EntityTable<LocalSubsample, 'tagId'>
   scans!: EntityTable<LocalScan, 'id'>
+  boxes!: EntityTable<LocalBox, 'tagId'>
+  placements!: EntityTable<LocalPlacement, 'itemTagId'>
 
   constructor(name = 'specimap') {
     super(name)
@@ -313,6 +351,11 @@ export class SpeciMapDB extends Dexie {
     // v6: location checks (rescans after collection).
     this.version(6).stores({
       scans: 'id, tagId, status, scannedAt',
+    })
+    // v7: storage boxes and what's in them.
+    this.version(7).stores({
+      boxes: 'tagId, status',
+      placements: 'itemTagId, boxTagId, status',
     })
   }
 }

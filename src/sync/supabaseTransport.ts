@@ -11,6 +11,7 @@ import type { RemoteSpecimen } from './pull'
 import { compositionRow, type RemoteMaterialEntity, type SpecimenTransport } from '../specimens/store'
 import { db } from '../db/schema'
 import { eventRow, type EventTransport, type RemoteEvent } from '../events/sync'
+import { boxRow, placementRow, type BoxTransport, type RemoteBox, type RemotePlacement } from '../boxes/sync'
 import { scanRow, type RemoteScan, type ScanTransport } from '../scans/sync'
 import { subsampleRow, type RemoteSubsample, type SubsampleTransport } from '../subsamples/sync'
 
@@ -210,6 +211,40 @@ export const scanTransport: ScanTransport = {
       if (data.length < PAGE_SIZE) return all
     }
   },
+}
+
+async function fetchPaged<T>(table: string, columns: string, order: string): Promise<T[]> {
+  const all: T[] = []
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await supabase.from(table).select(columns).order(order).range(from, from + PAGE_SIZE - 1)
+    if (error) throw new Error(error.message)
+    all.push(...(data as T[]))
+    if (data.length < PAGE_SIZE) return all
+  }
+}
+
+export const boxTransport: BoxTransport = {
+  async upsertBox(b) {
+    const { error: tagErr } = await supabase.from('tags').upsert({ id: b.tagId }, { onConflict: 'id', ignoreDuplicates: true })
+    if (tagErr) throw classify(tagErr)
+    const { error } = await supabase.from('containers').upsert(boxRow(b), { onConflict: 'tag_id' })
+    if (error) throw classify(error)
+  },
+  fetchBoxes: () =>
+    fetchPaged<RemoteBox>('containers', 'tag_id, size, label, capacity, created_by, updated_at, custodian_user, custodian_org, visibility, generalize_public', 'tag_id'),
+  async upsertPlacement(p) {
+    if (p.deleted) {
+      // Only if it's still in that box (it may have moved on another phone).
+      const { error } = await supabase.from('container_items').delete().eq('item_tag', p.itemTagId).eq('box_tag', p.boxTagId)
+      if (error) throw classify(error)
+      return
+    }
+    const { error: tagErr } = await supabase.from('tags').upsert({ id: p.itemTagId }, { onConflict: 'id', ignoreDuplicates: true })
+    if (tagErr) throw classify(tagErr)
+    const { error } = await supabase.from('container_items').upsert(placementRow(p), { onConflict: 'item_tag' })
+    if (error) throw classify(error)
+  },
+  fetchPlacements: () => fetchPaged<RemotePlacement>('container_items', 'item_tag, box_tag, position, placed_by, placed_at, updated_at', 'item_tag'),
 }
 
 /** The printed format of a tag (from its batch), or null if unknown. */

@@ -19,6 +19,7 @@ import {
 import { describeSubsample } from '../subsamples/store'
 import { LocationHistory, ScanBanner } from '../scans/ScanViews'
 import CustodyPanel from '../custody/CustodyPanel'
+import StorageLine from '../boxes/StorageLine'
 import { cachedMemberships, canEdit } from '../custody/api'
 import { setComposition, setKind, setParentLot } from '../specimens/store'
 import type { LotPart } from '../db/schema'
@@ -566,6 +567,8 @@ export default function SpecimenPage() {
           Add photos
         </Link>
       )}
+
+      <StorageLine tagId={view.tagId} />
 
       <LotLinks view={view} editable={editable} />
 

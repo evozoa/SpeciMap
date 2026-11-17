@@ -8,6 +8,7 @@ import type { SpecimenView } from '../specimens/view'
 import { INAT_API } from '../inat/auth'
 import { isFullRes } from '../lib/image'
 import { loadPhotoBlob } from '../lib/photoUrl'
+import { describeStorage, placementOf } from '../boxes/store'
 import type { ExportPrefs } from '../lib/prefs'
 import {
   MULTIMEDIA_COLUMNS,
@@ -123,6 +124,9 @@ occurrence.csv   One row per specimen (Darwin Core terms), with the terms of
 multimedia.csv   One row per specimen photo, linked by occurrenceID.
 subsamples.csv   One row per subsample (e.g. a fin clip in a 2 mL tube),
                  linked to its specimen by materialEntityID and occurrenceID.
+storage.csv      Where each specimen and subsample is kept: its container
+                 (SpeciMap tag), position, and the full path (box, rack,
+                 shelf).
 location_checks.csv  One row per later scan of a specimen's or subsample's
                  tag (e.g. on a museum shelf): when and where it was seen.
 photos/          Specimen photos, named <vial tag>_<n>.jpg.
@@ -193,6 +197,17 @@ export async function buildPackage(
   const checks = (await db.scans.where('tagId').anyOf(checkedTags).toArray())
     .filter((s) => !s.deleted)
     .sort((a, b) => a.tagId.localeCompare(b.tagId) || a.scannedAt.localeCompare(b.scannedAt))
+  const stored: string[][] = []
+  for (const tag of checkedTags) {
+    const p = await placementOf(tag)
+    if (p) stored.push([`SpeciMap:${tag}`, `SpeciMap:${p.boxTagId}`, p.position, await describeStorage(tag)])
+  }
+  if (stored.length) {
+    const cols = ['materialEntityID', 'containerID', 'position', 'storageLocation'] as const
+    files['storage.csv'] = strToU8(
+      BOM + toCsv(cols, stored.map(([a, b, c, d]) => ({ materialEntityID: a, containerID: b, position: c, storageLocation: d }))),
+    )
+  }
   if (checks.length) {
     files['location_checks.csv'] = strToU8(BOM + toCsv(LOCATION_CHECK_COLUMNS, checks.map((s) => locationCheckRow(s))))
   }

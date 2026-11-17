@@ -11,12 +11,13 @@
  */
 import { db as defaultDb, type SpeciMapDB } from '../db/schema'
 
-export type TagRank = 'event' | 'specimen' | 'subsample'
+export type TagRank = 'event' | 'specimen' | 'subsample' | 'box'
 
 /** What a tag already is on this phone, or null if it's unused here. */
 export async function tagRole(tagId: string, db: SpeciMapDB = defaultDb): Promise<TagRank | null> {
   if (await db.events.get(tagId)) return 'event'
   if (await db.subsamples.get(tagId)) return 'subsample'
+  if (await db.boxes.get(tagId)) return 'box'
   const captures = await db.records.where('tagId').equals(tagId).toArray()
   if (captures.some((r) => r.status !== 'draft')) return 'specimen'
   return null

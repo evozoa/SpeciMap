@@ -6,6 +6,7 @@ import { db, type LocalSubsample } from '../db/schema'
 import { LocationHistory, ScanBanner } from '../scans/ScanViews'
 import { locationHistory, type HistoryEntry } from '../scans/store'
 import CustodyPanel from '../custody/CustodyPanel'
+import StorageLine from '../boxes/StorageLine'
 import { cachedMemberships, canEdit } from '../custody/api'
 import { formatTagId } from '../lib/tagid'
 import { PRESERVATIONS, SAMPLE_TYPES, updateSubsample } from '../subsamples/store'
@@ -157,6 +158,8 @@ export default function SubsamplePage() {
         <Field s={s} k="preservation" label="Preservation" term="preparations" options={PRESERVATIONS} editable={editable} />
         <Field s={s} k="remarks" label="Remarks" editable={editable} />
       </section>
+
+      <StorageLine tagId={s.tagId} />
 
       <LocationHistory history={history} userId={session?.user.id} />
 

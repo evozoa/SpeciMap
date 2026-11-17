@@ -8,6 +8,22 @@ import { getActiveEvent } from '../events/store'
 import { LocationCheck } from '../scans/ScanViews'
 import { REUSE_HOURS } from '../specimens/view'
 import { setKind } from '../specimens/store'
+import {
+  DEFAULT_CAPACITY,
+  KIND_DETAIL,
+  SIZE_NAMES,
+  canHold,
+  createBox,
+  getPacking,
+  isGrid,
+  placeItem,
+  removeFromBox,
+  startPacking,
+  stopPacking,
+  type ContainerKind,
+  type Placed,
+} from '../boxes/store'
+import { ScanBanner } from '../scans/ScanViews'
 import { cachedMemberships, canEdit, publicTagInfo, tagUnclaimed, type PublicInfo } from '../custody/api'
 import { syncAll } from '../sync/triggers'
 import { formatTagId, parseTagId } from '../lib/tagid'
@@ -46,6 +62,14 @@ function TagScanFor() {
   const [params] = useSearchParams()
   const userId = session?.user.id
   const [chosen, setChosen] = useState<{ rank: TagRank | 'mixed_lot'; parentTagId: string | null } | null>(null)
+  // Packing: which container, and whether it can take this tag.
+  const packing = useLiveQuery(async () => {
+    const p = await getPacking()
+    if (!p || !tagId) return null
+    const outer = await db.boxes.get(p.boxTagId)
+    const inner = await db.boxes.get(tagId)
+    return outer && canHold(outer.size, inner?.size ?? null) ? p : null
+  }, [tagId], null)
   const role = useLiveQuery(async () => (tagId ? ((await tagRole(tagId)) ?? 'unused') : null), [tagId])
   const mayLog = useLiveQuery(() => (tagId ? mayLogCheck(tagId, userId) : false), [tagId, userId])
   // Only ever turns true during a visit (a new capture is recent), so saving
@@ -59,10 +83,18 @@ function TagScanFor() {
   if (role === undefined) return <Centered>Opening tag…</Centered>
   if (role === 'event') return <Navigate to={`/event/${tagId}`} replace />
   if (mayLog === undefined) return <Centered>Opening tag…</Centered>
+  // Packing: a scanned specimen, lot, subsample or box goes into the
+  // container being packed (if that container holds that kind of thing).
+  if (packing && packing.boxTagId !== tagId && (role === 'specimen' || role === 'subsample' || role === 'box') && !params.get('photos') && !chosen) {
+    return <PackItem tagId={tagId} boxTagId={packing.boxTagId} target={packing.target} userId={session.user.id} />
+  }
   // Only the custodian side or the collector logs location checks; anyone
   // else who can see the record just opens it.
   if (role === 'subsample') {
     return mayLog ? <LocationCheck tagId={tagId} to={`/subsample/${tagId}`} /> : <Navigate to={`/subsample/${tagId}`} replace />
+  }
+  if (role === 'box') {
+    return mayLog ? <LocationCheck tagId={tagId} to={`/box/${tagId}`} /> : <Navigate to={`/box/${tagId}`} replace />
   }
   if (role === 'specimen' && !chosen) {
     if (fieldSession === undefined) return <Centered>Opening tag…</Centered>
@@ -71,6 +103,7 @@ function TagScanFor() {
   }
   if (chosen?.rank === 'specimen' || chosen?.rank === 'mixed_lot') return <CapturePage />
   if (chosen?.rank === 'event') return <Navigate to={`/e/${tagId}`} replace />
+  if (chosen?.rank === 'box') return <NewBox tagId={tagId} userId={session.user.id} onBack={() => setChosen(null)} />
   if (chosen?.rank === 'subsample') {
     return <NewSubsample tagId={tagId} userId={session.user.id} parentTagId={chosen.parentTagId} onBack={() => setChosen(null)} />
   }
@@ -85,11 +118,148 @@ function TagScanFor() {
   )
 }
 
+/** Put a scanned item into the box being packed, with undo. */
+function PackItem({ tagId, boxTagId, target, userId }: { tagId: string; boxTagId: string; target: string | null; userId: string }) {
+  const [result, setResult] = useState<Placed | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [done] = useState(() => ({ started: false }))
+  const box = useLiveQuery(() => db.boxes.get(boxTagId), [boxTagId])
+  const count = useLiveQuery(async () => (await db.placements.where('boxTagId').equals(boxTagId).toArray()).filter((p) => !p.deleted).length, [boxTagId], 0)
+  useEffect(() => {
+    if (done.started) return
+    done.started = true
+    void placeItem({ itemTagId: tagId, boxTagId, position: target, placedBy: userId })
+      .then(async (r) => {
+        setResult(r)
+        await startPacking(boxTagId, null) // a chosen position is used once
+        if (navigator.onLine) void syncAll()
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : String(err)))
+  }, [tagId, boxTagId, target, userId, done])
+
+  const undo = async () => {
+    if (!result) return
+    if (result.previous) await placeItem({ itemTagId: tagId, boxTagId: result.previous.boxTagId, position: result.previous.position, placedBy: userId })
+    else await removeFromBox(tagId)
+    setResult(null)
+    setError('Undone.')
+  }
+
+  return (
+    <div className="mx-auto flex min-h-full max-w-lg flex-col justify-center gap-4 p-4 text-center">
+      <p className="font-mono text-lg font-bold">{formatTagId(tagId)}</p>
+      {result ? (
+        <>
+          <div className="text-5xl">✓</div>
+          <p className="text-lg">
+            Placed in <span className="font-semibold">{box?.label || formatTagId(boxTagId)}</span>, position{' '}
+            <span className="font-mono text-2xl font-bold">{result.position}</span>
+          </p>
+          {result.previous && (
+            <p className="text-sm text-amber-300">
+              Moved from {result.previous.boxTagId === boxTagId ? '' : `box ${formatTagId(result.previous.boxTagId)}, `}
+              {result.previous.position}.
+            </p>
+          )}
+          <p className="text-sm text-slate-400">
+            {count}/{box?.capacity ?? 100} in this box. Scan the next vial or tube with your camera.
+          </p>
+          <ScanBanner scanId={result.scanId} />
+        </>
+      ) : (
+        <p className={error ? 'text-red-400' : 'text-slate-400'}>{error ?? 'Placing…'}</p>
+      )}
+      <div className="flex justify-center gap-3 text-sm">
+        {result && (
+          <button onClick={() => void undo()} className="rounded bg-slate-700 px-3 py-2">
+            Undo
+          </button>
+        )}
+        <Link to={`/box/${boxTagId}`} className="rounded bg-slate-700 px-3 py-2">
+          Open box
+        </Link>
+        <button onClick={() => void stopPacking().then(() => location.reload())} className="rounded bg-slate-700 px-3 py-2">
+          Stop packing
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/** A new box: choose its size and label it. */
+function NewBox({ tagId, userId, onBack }: { tagId: string; userId: string; onBack: () => void }) {
+  const navigate = useNavigate()
+  const [size, setSize] = useState<ContainerKind>('2ml')
+  const [capacity, setCapacity] = useState(String(DEFAULT_CAPACITY['2ml']))
+  const [label, setLabel] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const save = async (pack: boolean) => {
+    try {
+      await createBox({ tagId, size, label, createdBy: userId, capacity: isGrid(size) ? 100 : parseInt(capacity, 10) || DEFAULT_CAPACITY[size] })
+      if (pack) await startPacking(tagId)
+      if (navigator.onLine) void syncAll()
+      navigate(`/box/${tagId}`, { replace: true })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+  return (
+    <div className="mx-auto flex min-h-full max-w-lg flex-col gap-4 p-4 text-sm">
+      <header className="flex items-center justify-between">
+        <button onClick={onBack} className="text-slate-400 underline">
+          ← Back
+        </button>
+        <span className="font-mono text-lg font-bold">{formatTagId(tagId)}</span>
+      </header>
+      <h1 className="text-xl font-bold">New storage container</h1>
+      <section className="flex flex-col gap-3 rounded-lg bg-slate-900 p-4">
+        {(['2ml', '20ml', 'carton', 'rack', 'shelf'] as const).map((s) => (
+          <label key={s} className="flex items-start gap-3">
+            <input
+              type="radio"
+              checked={size === s}
+              onChange={() => {
+                setSize(s)
+                setCapacity(String(DEFAULT_CAPACITY[s]))
+              }}
+              className="mt-0.5 h-5 w-5 accent-emerald-500"
+            />
+            <span>
+              {SIZE_NAMES[s]} <span className="block text-xs text-slate-500">{KIND_DETAIL[s]}</span>
+            </span>
+          </label>
+        ))}
+        {!isGrid(size) && (
+          <label className="flex items-center justify-between gap-3">
+            Number of positions
+            <input type="number" min={1} max={100} value={capacity} onChange={(e) => setCapacity(e.target.value)} className="w-20 rounded bg-slate-800 px-3 py-2 text-right" />
+          </label>
+        )}
+        <input
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          placeholder="Label (optional), e.g. Fin clips 2026, box 3"
+          className="rounded bg-slate-800 px-3 py-2 placeholder:text-slate-600"
+        />
+      </section>
+      {error && <p className="text-red-400">{error}</p>}
+      <button onClick={() => void save(true)} className="rounded-lg bg-emerald-600 px-4 py-3 text-base font-semibold">
+        Create and start packing
+      </button>
+      <button onClick={() => void save(false)} className="rounded-lg bg-slate-800 px-4 py-3">
+        Create only
+      </button>
+    </div>
+  )
+}
+
 /** May this user log a location check for the tag (custodian side or collector)? */
 async function mayLogCheck(tagId: string, userId: string | undefined): Promise<boolean> {
   const orgs = await cachedMemberships()
   const sub = await db.subsamples.get(tagId)
   if (sub) return sub.createdBy === userId || canEdit(sub.custody, userId, orgs)
+  const box = await db.boxes.get(tagId)
+  if (box) return box.createdBy === userId || canEdit(box.custody, userId, orgs)
   const captures = await db.records.where('tagId').equals(tagId).toArray()
   if (captures.some((r) => r.collectorId === userId)) return true
   return canEdit((await db.specimens.get(tagId))?.custody, userId, orgs)
@@ -163,6 +333,7 @@ const RANKS: { rank: TagRank | 'mixed_lot'; title: string; detail: string }[] = 
   { rank: 'mixed_lot', title: 'Mixed lot', detail: 'A jar of several species, e.g. a whole seine haul, to sort later.' },
   { rank: 'subsample', title: 'Subsample', detail: 'Tissue taken from a specimen, e.g. a fin clip in a 2 mL tube.' },
   { rank: 'event', title: 'Collecting event', detail: 'A field sheet: the site, date, method and collectors.' },
+  { rank: 'box', title: 'Box, rack or shelf', detail: 'Storage: tube and vial boxes, cardboard boxes, freezer racks, museum shelves. Scan what goes in to give it a position.' },
 ]
 
 function RankChooser({ tagId, onChoose }: { tagId: string; onChoose: (rank: TagRank | 'mixed_lot', parentTagId: string | null) => void }) {
