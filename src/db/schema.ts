@@ -214,6 +214,31 @@ export interface LocalSubsample {
   lastError: string | null
 }
 
+/**
+ * A location check: a rescan of a specimen or subsample tag after it was
+ * collected, logging where and when it was seen. Never a capture, so it
+ * doesn't change the collection record or count as tag reuse.
+ */
+export interface LocalScan {
+  id: string
+  tagId: string
+  scannedBy: string
+  scannedAt: string
+  /** Null until the phone gets a GPS fix (or if it never does). */
+  lat: number | null
+  lng: number | null
+  gpsAccuracyM: number | null
+  /** Typed by the collector, e.g. "Range 4, shelf B". */
+  place: string
+  /** Removed by the collector; kept until the removal reaches the server. */
+  deleted?: boolean
+  updatedAt: string
+  status: 'queued' | 'syncing' | 'synced' | 'error'
+  attempts: number
+  nextAttemptAt: number
+  lastError: string | null
+}
+
 export interface MetaRow {
   key: string
   value: unknown
@@ -229,6 +254,7 @@ export class SpeciMapDB extends Dexie {
   events!: EntityTable<LocalEvent, 'id'>
   eventPhotos!: EntityTable<LocalEventPhoto, 'id'>
   subsamples!: EntityTable<LocalSubsample, 'tagId'>
+  scans!: EntityTable<LocalScan, 'id'>
 
   constructor(name = 'specimap') {
     super(name)
@@ -255,6 +281,10 @@ export class SpeciMapDB extends Dexie {
     // v5: subsamples (any tag can be one; rank chosen on first scan).
     this.version(5).stores({
       subsamples: 'tagId, parentTagId, status',
+    })
+    // v6: location checks (rescans after collection).
+    this.version(6).stores({
+      scans: 'id, tagId, status, scannedAt',
     })
   }
 }

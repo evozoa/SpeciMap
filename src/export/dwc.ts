@@ -12,7 +12,7 @@
  * in otherCatalogNumbers). fieldNumber is the collector's number for the
  * event; catalogNumber is left for the museum.
  */
-import type { LocalEvent, LocalSubsample } from '../db/schema'
+import type { LocalEvent, LocalScan, LocalSubsample } from '../db/schema'
 import type { ExportPrefs, PhotoLicense } from '../lib/prefs'
 import { formatTagId } from '../lib/tagid'
 import type { SpecimenView } from '../specimens/view'
@@ -121,6 +121,16 @@ export const SUBSAMPLE_COLUMNS = [
   'eventDate',
   'recordedBy',
   'materialSampleRemarks',
+] as const
+
+/** One row per location check (a rescan after collection). */
+export const LOCATION_CHECK_COLUMNS = [
+  'materialEntityID',
+  'checkedAt',
+  'decimalLatitude',
+  'decimalLongitude',
+  'coordinateUncertaintyInMeters',
+  'verbatimLocality',
 ] as const
 
 type Row<C extends readonly string[]> = Record<C[number], string>
@@ -287,6 +297,20 @@ export function subsampleExportRow(
     eventDate: localIso(s.collectedAt, tz(s.collectedAt)).iso,
     recordedBy: prefs.recordedBy.trim(),
     materialSampleRemarks: s.remarks,
+  }
+}
+
+export function locationCheckRow(
+  s: LocalScan,
+  tz: (iso: string) => number = offsetAt,
+): Row<typeof LOCATION_CHECK_COLUMNS> {
+  return {
+    materialEntityID: `SpeciMap:${s.tagId}`,
+    checkedAt: localIso(s.scannedAt, tz(s.scannedAt)).iso,
+    decimalLatitude: s.lat != null ? s.lat.toFixed(6) : '',
+    decimalLongitude: s.lng != null ? s.lng.toFixed(6) : '',
+    coordinateUncertaintyInMeters: s.gpsAccuracyM != null ? String(Math.max(1, Math.round(s.gpsAccuracyM))) : '',
+    verbatimLocality: s.place,
   }
 }
 

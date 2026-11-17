@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
+import { useAuth } from '../auth/AuthProvider'
 import { db, type LocalSubsample } from '../db/schema'
+import { LocationHistory, ScanBanner } from '../scans/ScanViews'
+import { locationHistory, type HistoryEntry } from '../scans/store'
 import { formatTagId } from '../lib/tagid'
 import { PRESERVATIONS, SAMPLE_TYPES, updateSubsample } from '../subsamples/store'
 import { subsampleSync } from '../sync/triggers'
@@ -46,6 +49,8 @@ function Field({ s, k, label, term, options }: { s: LocalSubsample; k: Key; labe
 export default function SubsamplePage() {
   const { tagId } = useParams<{ tagId: string }>()
   const [params] = useSearchParams()
+  const scanId = params.get('scan')
+  const { session } = useAuth()
   const data = useLiveQuery(async () => {
     if (!tagId) return null
     const s = await db.subsamples.get(tagId)
@@ -53,7 +58,19 @@ export default function SubsamplePage() {
     const parentCaptures = await db.records.where('tagId').equals(s.parentTagId).toArray()
     const species = parentCaptures.find((r) => r.species?.trim())?.species?.trim() ?? ''
     const event = s.eventId ? await db.events.get(s.eventId) : undefined
-    return { s, species, parentKnown: parentCaptures.length > 0, event }
+    // Where it was taken: the event's position, if the event has one.
+    const taken: HistoryEntry = {
+      kind: 'collected',
+      id: s.tagId,
+      at: s.collectedAt,
+      lat: event?.decimalLatitude ?? null,
+      lng: event?.decimalLongitude ?? null,
+      accuracyM: event?.coordinateUncertaintyInMeters ?? null,
+      place: event?.locality ?? '',
+      by: s.createdBy,
+    }
+    const history = [taken, ...locationHistory([], await db.scans.where('tagId').equals(tagId).toArray())]
+    return { s, species, parentKnown: parentCaptures.length > 0, event, history }
   }, [tagId])
 
   if (data === undefined) return null
@@ -67,7 +84,7 @@ export default function SubsamplePage() {
       </div>
     )
   }
-  const { s, species, parentKnown, event } = data
+  const { s, species, parentKnown, event, history } = data
 
   return (
     <div className="mx-auto flex min-h-full max-w-lg flex-col gap-4 p-4 text-sm">
@@ -78,6 +95,7 @@ export default function SubsamplePage() {
         <span className="font-mono text-lg font-bold">{formatTagId(s.tagId)}</span>
       </header>
 
+      {scanId && <ScanBanner scanId={scanId} />}
       {params.get('saved') && (
         <div className="rounded-lg bg-emerald-900/50 p-3 text-emerald-200">
           Saved. Scan the next tag with your camera.
@@ -134,6 +152,8 @@ export default function SubsamplePage() {
         <Field s={s} k="preservation" label="Preservation" term="preparations" options={PRESERVATIONS} />
         <Field s={s} k="remarks" label="Remarks" />
       </section>
+
+      <LocationHistory history={history} userId={session?.user.id} />
     </div>
   )
 }

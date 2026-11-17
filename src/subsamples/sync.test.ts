@@ -35,13 +35,19 @@ describe('SubsampleSyncRunner', () => {
     const db = fresh()
     await createSubsample(base, db)
     const t = transport()
+    let started!: () => void
+    let finish!: () => void
+    const uploading = new Promise<void>((r) => (started = r))
     t.upsert = vi.fn(async () => {
-      await new Promise((r) => setTimeout(r, 5))
+      started()
+      await new Promise<void>((r) => (finish = r))
     })
     const runner = new SubsampleSyncRunner(db, t)
     const pass = runner.kick()
-    await new Promise((r) => setTimeout(r, 1))
+    await uploading
+    await new Promise((r) => setTimeout(r, 2)) // a later timestamp than the upload's copy
     await updateSubsample('TUBE00001', { remarks: 'edited' }, db)
+    finish()
     await pass
     expect((await db.subsamples.get('TUBE00001'))?.status).toBe('queued')
   })

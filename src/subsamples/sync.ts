@@ -1,10 +1,8 @@
 /**
- * Uploads subsamples and pulls ones made on the collector's other devices.
- * Same guarantees as the event sync: idempotent upserts keyed by tag, backoff,
- * and a subsample edited mid-upload is sent again.
+ * Subsample upload rows and the runner that syncs them (see ../sync/rows.ts).
  */
 import type { LocalSubsample, SpeciMapDB } from '../db/schema'
-import { TerminalSyncError } from '../sync/engine'
+import { RowSyncRunner, type RowSyncOptions } from '../sync/rows'
 
 export interface RemoteSubsample {
   tag_id: string
@@ -57,86 +55,22 @@ export function fromRemote(r: RemoteSubsample): LocalSubsample {
   }
 }
 
-export interface SubsampleSyncOptions {
-  baseDelayMs?: number
-  maxDelayMs?: number
-  now?: () => number
-}
+export type SubsampleSyncOptions = RowSyncOptions
 
-export class SubsampleSyncRunner {
-  private running: Promise<void> | null = null
-
-  constructor(
-    private db: SpeciMapDB,
-    private transport: SubsampleTransport,
-    private opts: SubsampleSyncOptions = {},
-  ) {}
-
-  kick(): Promise<void> {
-    this.running ??= this.pass().finally(() => {
-      this.running = null
-    })
-    return this.running
-  }
-
-  /** Send a failed subsample again. */
-  async retry(tagId: string): Promise<void> {
-    await this.db.subsamples.update(tagId, { status: 'queued', attempts: 0, nextAttemptAt: 0, lastError: null })
-  }
-
-  private async pass(): Promise<void> {
-    const now = this.opts.now ?? Date.now
-    await this.db.subsamples.where('status').equals('syncing').modify({ status: 'queued' })
-    const due = await this.db.subsamples
-      .where('status')
-      .equals('queued')
-      .filter((s) => s.nextAttemptAt <= now())
-      .toArray()
-    for (const s of due) await this.syncOne(s)
-  }
-
-  private async syncOne(s: LocalSubsample): Promise<void> {
-    const now = this.opts.now ?? Date.now
-    await this.db.subsamples.update(s.tagId, { status: 'syncing' })
-    try {
-      await this.transport.upsert(s)
-      await this.db.transaction('rw', this.db.subsamples, async () => {
-        const fresh = await this.db.subsamples.get(s.tagId)
-        if (!fresh) return
-        const edited = fresh.updatedAt !== s.updatedAt
-        await this.db.subsamples.update(s.tagId, {
-          status: edited ? 'queued' : 'synced',
-          attempts: 0,
-          nextAttemptAt: 0,
-          lastError: null,
-        })
-      })
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      if (err instanceof TerminalSyncError) {
-        await this.db.subsamples.update(s.tagId, { status: 'error', lastError: message })
-        return
-      }
-      const attempts = s.attempts + 1
-      const base = this.opts.baseDelayMs ?? 60_000
-      const cap = this.opts.maxDelayMs ?? 3_600_000
-      await this.db.subsamples.update(s.tagId, {
-        status: 'queued',
-        attempts,
-        nextAttemptAt: now() + Math.min(base * 2 ** (attempts - 1), cap),
-        lastError: message,
-      })
-    }
-  }
-
-  /** Adds subsamples from other devices; refreshes ones with nothing to upload. */
-  async pull(): Promise<void> {
-    const remote = await this.transport.fetchAll()
-    await this.db.transaction('rw', this.db.subsamples, async () => {
-      const local = await this.db.subsamples.bulkGet(remote.map((r) => r.tag_id))
-      await this.db.subsamples.bulkPut(
-        remote.filter((_, i) => !local[i] || local[i]!.status === 'synced').map(fromRemote),
-      )
-    })
+/** Uploads subsamples; pulls ones made on the collector's other devices. */
+export class SubsampleSyncRunner extends RowSyncRunner<LocalSubsample, RemoteSubsample> {
+  constructor(db: SpeciMapDB, transport: SubsampleTransport, opts: SubsampleSyncOptions = {}) {
+    super(
+      db,
+      {
+        table: (d) => d.subsamples,
+        key: (s) => s.tagId,
+        remoteKey: (r) => r.tag_id,
+        upsert: (s) => transport.upsert(s),
+        fetchAll: () => transport.fetchAll(),
+        fromRemote,
+      },
+      opts,
+    )
   }
 }

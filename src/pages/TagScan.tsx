@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
-import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useAuth } from '../auth/AuthProvider'
 import CapturePage from '../capture/CapturePage'
 import { db } from '../db/schema'
 import { getActiveEvent } from '../events/store'
+import { LocationCheck } from '../scans/ScanViews'
+import { REUSE_HOURS } from '../specimens/view'
 import { formatTagId, parseTagId } from '../lib/tagid'
 import { PRESERVATIONS, SAMPLE_TYPES, createSubsample } from '../subsamples/store'
 import { fetchTagFormat } from '../sync/supabaseTransport'
@@ -20,8 +22,14 @@ import {
 } from '../tags/rank'
 
 /**
- * /s/:tagId, the URL in every tag's QR code. A tag already in use opens what
- * it is; an unused tag asks what it marks (event, specimen or subsample).
+ * /s/:tagId, the URL in every tag's QR code. An unused tag asks what it
+ * marks (event, specimen or subsample). A tag already in use opens what it
+ * is; scanning a specimen or subsample after it was collected also logs a
+ * location check, so its last known location can be traced.
+ *
+ * A specimen this collector captured within the last REUSE_HOURS is still
+ * being worked up in the field: rescanning it opens the camera to add photos.
+ * `?photos=1` opens the camera for an older specimen too.
  */
 export default function TagScan() {
   const { tagId: raw } = useParams<{ tagId: string }>()
@@ -32,20 +40,38 @@ function TagScanFor() {
   const { tagId: raw } = useParams<{ tagId: string }>()
   const tagId = parseTagId(raw ?? '')
   const { session, loading } = useAuth()
+  const [params] = useSearchParams()
+  const userId = session?.user.id
   const [chosen, setChosen] = useState<{ rank: TagRank; parentTagId: string | null } | null>(null)
   const role = useLiveQuery(async () => (tagId ? ((await tagRole(tagId)) ?? 'unused') : null), [tagId])
+  // Only ever turns true during a visit (a new capture is recent), so saving
+  // a capture never turns the camera page into a location check.
+  const fieldSession = useLiveQuery(() => recentOwnCapture(tagId, userId), [tagId, userId])
 
   // Invalid tags and sign-in are handled by the capture page.
   if (!tagId || loading || !session) return <CapturePage />
   if (role === undefined) return <Centered>Opening tag…</Centered>
   if (role === 'event') return <Navigate to={`/event/${tagId}`} replace />
-  if (role === 'subsample') return <Navigate to={`/subsample/${tagId}`} replace />
-  if (role === 'specimen' || chosen?.rank === 'specimen') return <CapturePage />
+  if (role === 'subsample') return <LocationCheck tagId={tagId} to={`/subsample/${tagId}`} />
+  if (role === 'specimen' && !chosen) {
+    if (fieldSession === undefined) return <Centered>Opening tag…</Centered>
+    if (fieldSession || params.get('photos')) return <CapturePage />
+    return <LocationCheck tagId={tagId} to={`/specimen/${tagId}`} />
+  }
+  if (chosen?.rank === 'specimen') return <CapturePage />
   if (chosen?.rank === 'event') return <Navigate to={`/e/${tagId}`} replace />
   if (chosen?.rank === 'subsample') {
     return <NewSubsample tagId={tagId} userId={session.user.id} parentTagId={chosen.parentTagId} onBack={() => setChosen(null)} />
   }
   return <RankChooser tagId={tagId} onChoose={(rank, parentTagId) => setChosen({ rank, parentTagId })} />
+}
+
+/** True if this collector captured the tag recently (still in the field). */
+async function recentOwnCapture(tagId: string | null, userId: string | undefined): Promise<boolean> {
+  if (!tagId || !userId) return false
+  const since = Date.now() - REUSE_HOURS * 3_600_000
+  const captures = await db.records.where('tagId').equals(tagId).toArray()
+  return captures.some((r) => r.collectorId === userId && r.status !== 'draft' && Date.parse(r.capturedAt) >= since)
 }
 
 const RANKS: { rank: TagRank; title: string; detail: string }[] = [

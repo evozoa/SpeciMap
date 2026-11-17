@@ -11,10 +11,12 @@ import { loadPhotoBlob } from '../lib/photoUrl'
 import type { ExportPrefs } from '../lib/prefs'
 import {
   MULTIMEDIA_COLUMNS,
+  LOCATION_CHECK_COLUMNS,
   OCCURRENCE_COLUMNS,
   SUBSAMPLE_COLUMNS,
   classificationFrom,
   fieldNotesFileName,
+  locationCheckRow,
   multimediaRows,
   occurrenceRow,
   photoFileName,
@@ -117,6 +119,8 @@ occurrence.csv   One row per specimen (Darwin Core terms), with the terms of
 multimedia.csv   One row per specimen photo, linked by occurrenceID.
 subsamples.csv   One row per subsample (e.g. a fin clip in a 2 mL tube),
                  linked to its specimen by materialEntityID and occurrenceID.
+location_checks.csv  One row per later scan of a specimen's or subsample's
+                 tag (e.g. on a museum shelf): when and where it was seen.
 photos/          Specimen photos, named <vial tag>_<n>.jpg.
 fieldnotes/      Photos of the completed field sheets (see fieldNotes).
 
@@ -177,6 +181,13 @@ export async function buildPackage(
     'occurrence.csv': strToU8(BOM + occurrence),
     'multimedia.csv': strToU8(BOM + multimedia),
     'subsamples.csv': strToU8(BOM + toCsv(SUBSAMPLE_COLUMNS, subsamples.map((s) => subsampleExportRow(s, prefs)))),
+  }
+  const checkedTags = [...specimens.map((v) => v.tagId), ...subsamples.map((s) => s.tagId)]
+  const checks = (await db.scans.where('tagId').anyOf(checkedTags).toArray())
+    .filter((s) => !s.deleted)
+    .sort((a, b) => a.tagId.localeCompare(b.tagId) || a.scannedAt.localeCompare(b.scannedAt))
+  if (checks.length) {
+    files['location_checks.csv'] = strToU8(BOM + toCsv(LOCATION_CHECK_COLUMNS, checks.map((s) => locationCheckRow(s))))
   }
   const total =
     items.reduce((n, it) => n + it.photos.length, 0) +

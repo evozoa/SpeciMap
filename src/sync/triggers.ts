@@ -11,11 +11,13 @@ import {
   eventTransport,
   fetchRemoteSpecimens,
   specimenTransport,
+  scanTransport,
   subsampleTransport,
   supabaseTransport,
 } from './supabaseTransport'
 import { EventSyncRunner } from '../events/sync'
 import { SubsampleSyncRunner } from '../subsamples/sync'
+import { ScanSyncRunner } from '../scans/sync'
 import { pullSpecimens, pushSpecimens } from '../specimens/store'
 import { inatShareRunner } from '../inat/share'
 import { taxonResolver } from '../taxa/resolver'
@@ -23,6 +25,7 @@ import { taxonResolver } from '../taxa/resolver'
 export const syncEngine = new SyncEngine(db, supabaseTransport)
 export const eventSync = new EventSyncRunner(db, eventTransport)
 export const subsampleSync = new SubsampleSyncRunner(db, subsampleTransport)
+export const scanSync = new ScanSyncRunner(db, scanTransport)
 
 /** Push queued records, then pull records captured on other devices. */
 export async function syncAll(): Promise<void> {
@@ -56,6 +59,12 @@ export async function syncAll(): Promise<void> {
     await subsampleSync.pull()
   } catch (err) {
     console.warn('Subsample sync failed', err)
+  }
+  try {
+    await scanSync.kick()
+    await scanSync.pull()
+  } catch (err) {
+    console.warn('Location check sync failed', err)
   }
   // Specimen-level fields (individual count, reviews), after the captures
   // that create their server rows.

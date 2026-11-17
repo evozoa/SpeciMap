@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, Navigate, useParams } from 'react-router-dom'
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useAuth } from '../auth/AuthProvider'
 import { db, type LocalPhoto, type LocalRecord, type Taxon } from '../db/schema'
@@ -17,6 +17,8 @@ import {
   setSpecimenSpecies,
 } from '../specimens/store'
 import { describeSubsample } from '../subsamples/store'
+import { LocationHistory, ScanBanner } from '../scans/ScanViews'
+import { locationHistory } from '../scans/store'
 import { syncEngine } from '../sync/triggers'
 
 function Photo({ photo }: { photo: LocalPhoto }) {
@@ -332,6 +334,9 @@ export default function SpecimenPage() {
   const { tagId } = useParams<{ tagId: string }>()
   const { session } = useAuth()
   const userId = session?.user.id
+  const [params] = useSearchParams()
+  const scanId = params.get('scan')
+  const navigate = useNavigate()
   const data = useLiveQuery(async () => {
     if (!tagId) return null
     const captures = (await db.records.where('tagId').equals(tagId).toArray()).filter(
@@ -341,7 +346,8 @@ export default function SpecimenPage() {
     const view = specimenView(captures, await db.specimens.get(tagId))
     const photos = await db.photos.where('recordId').anyOf(captures.map((r) => r.id)).toArray()
     const subsamples = await db.subsamples.where('parentTagId').equals(tagId).sortBy('collectedAt')
-    return { view, photos, subsamples }
+    const history = locationHistory(captures, await db.scans.where('tagId').equals(tagId).toArray())
+    return { view, photos, subsamples, history }
   }, [tagId])
 
   if (data === undefined) return null
@@ -355,7 +361,7 @@ export default function SpecimenPage() {
       </div>
     )
   }
-  const { view, photos, subsamples } = data
+  const { view, photos, subsamples, history } = data
   const failed = view.captures.filter((r) => r.status === 'error')
   const myFirst = view.captures.find((r) => r.collectorId === userId)
 
@@ -381,6 +387,10 @@ export default function SpecimenPage() {
         </div>
       ))}
 
+      {scanId && (
+        <ScanBanner scanId={scanId} onDifferentFish={() => navigate(`/s/${view.tagId}?photos=1`, { replace: true })} />
+      )}
+
       {view.reuseSuspects.length > 0 && <TagReuse view={view} />}
       {view.disagreement && <Disagreement view={view} userId={userId} />}
 
@@ -401,7 +411,13 @@ export default function SpecimenPage() {
         className="h-64 overflow-hidden rounded-lg"
       />
 
+      <Link to={`/s/${view.tagId}?photos=1`} className="rounded-lg bg-slate-800 px-4 py-3 text-center text-sm font-semibold">
+        Add photos
+      </Link>
+
       {myFirst && <InatRecordPanel record={myFirst} />}
+
+      <LocationHistory history={history} userId={userId} />
 
       <section className="rounded-lg bg-slate-900 p-4 text-sm">
         <h2 className="mb-1 font-semibold">

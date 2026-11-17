@@ -11,6 +11,7 @@ import type { RemoteSpecimen } from './pull'
 import type { RemoteMaterialEntity, SpecimenTransport } from '../specimens/store'
 import { db } from '../db/schema'
 import { eventRow, type EventTransport, type RemoteEvent } from '../events/sync'
+import { scanRow, type RemoteScan, type ScanTransport } from '../scans/sync'
 import { subsampleRow, type RemoteSubsample, type SubsampleTransport } from '../subsamples/sync'
 
 function photoPath(record: LocalRecord, photo: LocalPhoto): string {
@@ -174,6 +175,36 @@ export const subsampleTransport: SubsampleTransport = {
         .range(from, from + PAGE_SIZE - 1)
       if (error) throw new Error(error.message)
       all.push(...(data as RemoteSubsample[]))
+      if (data.length < PAGE_SIZE) return all
+    }
+  },
+}
+
+export const scanTransport: ScanTransport = {
+  async upsert(s) {
+    if (s.deleted) {
+      const { error } = await supabase.from('tag_scans').delete().eq('id', s.id)
+      if (error) throw classify(error)
+      return
+    }
+    const { error: tagErr } = await supabase
+      .from('tags')
+      .upsert({ id: s.tagId }, { onConflict: 'id', ignoreDuplicates: true })
+    if (tagErr) throw classify(tagErr)
+    const { error } = await supabase.from('tag_scans').upsert(scanRow(s), { onConflict: 'id' })
+    if (error) throw classify(error)
+  },
+
+  async fetchAll() {
+    const all: RemoteScan[] = []
+    for (let from = 0; ; from += PAGE_SIZE) {
+      const { data, error } = await supabase
+        .from('tag_scans')
+        .select('id, tag_id, scanned_by, scanned_at, lat, lng, gps_accuracy_m, place, updated_at')
+        .order('id')
+        .range(from, from + PAGE_SIZE - 1)
+      if (error) throw new Error(error.message)
+      all.push(...(data as RemoteScan[]))
       if (data.length < PAGE_SIZE) return all
     }
   },

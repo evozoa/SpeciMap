@@ -7,6 +7,7 @@ vi.mock('../lib/supabase', () => ({ supabase: {}, PHOTO_BUCKET: 'photos' }))
 import { db, type LocalRecord } from '../db/schema'
 import { blankEvent } from '../events/store'
 import { createSubsample } from '../subsamples/store'
+import { logScan, setScanPlace } from '../scans/store'
 import { buildPackage } from './package'
 import { specimenView } from '../specimens/view'
 
@@ -69,6 +70,8 @@ describe('buildPackage', () => {
       db,
       new Date('2026-11-01T15:05:00.000Z'),
     )
+    await logScan({ id: 'scan-1', tagId: '7Q4MK2XRC', scannedBy: 'user-1' }, db, new Date('2026-11-20T15:00:00.000Z'))
+    await setScanPlace('scan-1', 'Range 4, shelf B', db)
     const result = await buildPackage(
       [specimenView([{ ...a, eventId: 'FS000001X' }]), specimenView([b])],
       prefs,
@@ -78,6 +81,7 @@ describe('buildPackage', () => {
     expect(Object.keys(files).sort()).toEqual([
       'README.txt',
       'fieldnotes/FS000001X_1.jpg',
+      'location_checks.csv',
       'multimedia.csv',
       'occurrence.csv',
       'photos/7Q4MK2XRC_1.jpg',
@@ -85,6 +89,8 @@ describe('buildPackage', () => {
       'photos/EAANEGW67_1.jpg',
       'subsamples.csv',
     ])
+    expect(strFromU8(files['location_checks.csv'])).toContain('SpeciMap:7Q4MK2XRC,2026-11-20T')
+    expect(strFromU8(files['location_checks.csv'])).toContain('Range 4, shelf B')
     const subs = strFromU8(files['subsamples.csv']).replace(/^﻿/, '').split('\r\n')
     expect(subs[0]).toBe('materialSampleID,relationshipOfResource,materialEntityID,occurrenceID,materialSampleType,preparations,eventID,eventDate,recordedBy,materialSampleRemarks')
     expect(subs[1]).toMatch(/^SpeciMap:TUBE00001,subsample of,SpeciMap:7Q4MK2XRC,https:\/\/specimap\.org\/specimen\/7Q4MK2XRC,Fin clip,95% ethanol,https:\/\/specimap\.org\/event\/FS000001X,2026-11-01T/)
