@@ -4,6 +4,7 @@ import { useAuth } from '../auth/AuthProvider'
 import { generateTagId } from '../lib/tagid'
 import { APP_ORIGIN, supabase } from '../lib/supabase'
 import type { PageSize, TagFormat } from '../tags/dimensions'
+import { cacheFormats } from '../tags/rank'
 
 interface BatchRow {
   id: string
@@ -98,6 +99,8 @@ export default function TagsPage() {
         .eq('batch_id', batch.id)
         .order('seq')
       const printIds = (ordered ?? []).map((r) => r.id)
+      // Remember the format, so scanning one of these tags suggests its rank.
+      await cacheFormats((ordered ?? []).map((r) => ({ id: r.id, batchId: batch.id, seq: r.seq, format })))
       if (format === 'fieldsheet') {
         const { generateFieldSheetPdf } = await import('../tags/fieldsheet')
         const pdf = await generateFieldSheetPdf({ ids: printIds, pageSize, label: label || undefined, origin: APP_ORIGIN })

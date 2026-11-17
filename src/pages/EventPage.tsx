@@ -22,6 +22,7 @@ import { formatTagId, parseTagId } from '../lib/tagid'
 import LocationPicker from '../map/LocationPicker'
 import { buildSpecimens } from '../specimens/view'
 import { eventSync } from '../sync/triggers'
+import { tagRole } from '../tags/rank'
 
 const kick = () => void eventSync.kick()
 
@@ -37,6 +38,11 @@ export function FieldSheetScan() {
     if (loading || !session || !tagId) return
     void (async () => {
       try {
+        const role = await tagRole(tagId)
+        if (role === 'specimen' || role === 'subsample') {
+          navigate(`/s/${tagId}`, { replace: true })
+          return
+        }
         const [{ recordedBy }, { fieldNumberPrefix }] = await Promise.all([
           getPrefs('exportPrefs'),
           getPrefs('collectorPrefs'),

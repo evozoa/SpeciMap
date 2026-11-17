@@ -6,6 +6,7 @@ import { stashResumeTag } from '../auth/resume'
 import { db, type Taxon } from '../db/schema'
 import { REUSE_HOURS, REUSE_METRES, distanceMetres } from '../specimens/view'
 import { getActiveEvent } from '../events/store'
+import { rememberLastSpecimen } from '../tags/rank'
 import { addDraftPhoto, appendToRecord, finalizeRecord } from '../db/drafts'
 import SpeciesInput from '../components/SpeciesInput'
 import { requestInatShare } from '../db/drafts'
@@ -175,6 +176,7 @@ export default function CapturePage() {
         focusScore: bestFocus,
       })
     }
+    await rememberLastSpecimen(tagId)
     if (shareToInat) {
       await requestInatShare(existingRecord?.id ?? recordId, inatPrefs.geoprivacy)
     }

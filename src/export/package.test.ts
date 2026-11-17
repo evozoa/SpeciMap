@@ -6,6 +6,7 @@ vi.mock('../lib/supabase', () => ({ supabase: {}, PHOTO_BUCKET: 'photos' }))
 
 import { db, type LocalRecord } from '../db/schema'
 import { blankEvent } from '../events/store'
+import { createSubsample } from '../subsamples/store'
 import { buildPackage } from './package'
 import { specimenView } from '../specimens/view'
 
@@ -63,6 +64,11 @@ describe('buildPackage', () => {
     await db.events.add({ ...blankEvent('FS000001X', 'user-1'), fieldNumber: 'MWS 26-014' })
     await db.records.update(a.id, { eventId: 'FS000001X' })
     await db.eventPhotos.add({ id: 'p1', eventId: 'FS000001X', blob: new Blob([jpeg]), width: 1, height: 1, bytes: 7, uploaded: 1 })
+    await createSubsample(
+      { tagId: 'TUBE00001', parentTagId: '7Q4MK2XRC', createdBy: 'user-1', eventId: 'FS000001X', sampleType: 'Fin clip', preservation: '95% ethanol', remarks: '' },
+      db,
+      new Date('2026-11-01T15:05:00.000Z'),
+    )
     const result = await buildPackage(
       [specimenView([{ ...a, eventId: 'FS000001X' }]), specimenView([b])],
       prefs,
@@ -77,7 +83,11 @@ describe('buildPackage', () => {
       'photos/7Q4MK2XRC_1.jpg',
       'photos/7Q4MK2XRC_2.jpg',
       'photos/EAANEGW67_1.jpg',
+      'subsamples.csv',
     ])
+    const subs = strFromU8(files['subsamples.csv']).replace(/^﻿/, '').split('\r\n')
+    expect(subs[0]).toBe('materialSampleID,relationshipOfResource,materialEntityID,occurrenceID,materialSampleType,preparations,eventID,eventDate,recordedBy,materialSampleRemarks')
+    expect(subs[1]).toMatch(/^SpeciMap:TUBE00001,subsample of,SpeciMap:7Q4MK2XRC,https:\/\/specimap\.org\/specimen\/7Q4MK2XRC,Fin clip,95% ethanol,https:\/\/specimap\.org\/event\/FS000001X,2026-11-01T/)
     expect(files['photos/EAANEGW67_1.jpg']).toEqual(jpeg)
     const occ = strFromU8(files['occurrence.csv']).replace(/^﻿/, '').split('\r\n')
     expect(occ).toHaveLength(4) // header, 2 rows, trailing newline

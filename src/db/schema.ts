@@ -188,6 +188,30 @@ export interface CachedTag {
   id: string
   batchId: string | null
   seq: number | null
+  /** The printed format (e.g. 'insert_2ml', 'fieldsheet'); suggests a rank. */
+  format?: string | null
+}
+
+/**
+ * A subsample (dwc:MaterialSample) taken from a specimen, e.g. a fin clip in
+ * a 2 mL tube, keyed by its own tag. Any tag can be a subsample: the rank is
+ * chosen when the tag is first scanned (src/tags/rank.ts).
+ */
+export interface LocalSubsample {
+  tagId: string
+  /** The specimen's tag (its dwc:materialEntityID). */
+  parentTagId: string
+  createdBy: string
+  eventId: string | null
+  sampleType: string
+  preservation: string
+  remarks: string
+  collectedAt: string
+  updatedAt: string
+  status: 'queued' | 'syncing' | 'synced' | 'error'
+  attempts: number
+  nextAttemptAt: number
+  lastError: string | null
 }
 
 export interface MetaRow {
@@ -204,6 +228,7 @@ export class SpeciMapDB extends Dexie {
   specimens!: EntityTable<LocalSpecimen, 'tagId'>
   events!: EntityTable<LocalEvent, 'id'>
   eventPhotos!: EntityTable<LocalEventPhoto, 'id'>
+  subsamples!: EntityTable<LocalSubsample, 'tagId'>
 
   constructor(name = 'specimap') {
     super(name)
@@ -226,6 +251,10 @@ export class SpeciMapDB extends Dexie {
       events: 'id, eventDate, status',
       eventPhotos: 'id, eventId, uploaded',
       records: 'id, tagId, status, capturedAt, nextAttemptAt, eventId',
+    })
+    // v5: subsamples (any tag can be one; rank chosen on first scan).
+    this.version(5).stores({
+      subsamples: 'tagId, parentTagId, status',
     })
   }
 }

@@ -12,11 +12,13 @@ import type { ExportPrefs } from '../lib/prefs'
 import {
   MULTIMEDIA_COLUMNS,
   OCCURRENCE_COLUMNS,
+  SUBSAMPLE_COLUMNS,
   classificationFrom,
   fieldNotesFileName,
   multimediaRows,
   occurrenceRow,
   photoFileName,
+  subsampleExportRow,
   toCsv,
   type Classification,
   type ExportItem,
@@ -113,6 +115,8 @@ ${count} specimen(s), ${photoCount} image(s).
 occurrence.csv   One row per specimen (Darwin Core terms), with the terms of
                  its collecting event (dwc:Event).
 multimedia.csv   One row per specimen photo, linked by occurrenceID.
+subsamples.csv   One row per subsample (e.g. a fin clip in a 2 mL tube),
+                 linked to its specimen by materialEntityID and occurrenceID.
 photos/          Specimen photos, named <vial tag>_<n>.jpg.
 fieldnotes/      Photos of the completed field sheets (see fieldNotes).
 
@@ -121,6 +125,7 @@ Identifiers
   materialEntityID   The QR tag on the specimen vial, as SpeciMap:<tag>
                      (printed on the tag as e.g. 7Q4M-K2XR-C). Repeated in
                      otherCatalogNumbers.
+  materialSampleID   The QR tag on a subsample's tube, as SpeciMap:<tag>.
   eventID            https://specimap.org/event/<field sheet tag>
   parentEventID      Set when several collectors' field sheets were linked
                      into one collecting event.
@@ -165,9 +170,13 @@ export async function buildPackage(
     }
   }
 
+  const subsamples = (await db.subsamples.where('parentTagId').anyOf(specimens.map((v) => v.tagId)).toArray()).sort(
+    (a, b) => a.parentTagId.localeCompare(b.parentTagId) || a.collectedAt.localeCompare(b.collectedAt),
+  )
   const files: AsyncZippable = {
     'occurrence.csv': strToU8(BOM + occurrence),
     'multimedia.csv': strToU8(BOM + multimedia),
+    'subsamples.csv': strToU8(BOM + toCsv(SUBSAMPLE_COLUMNS, subsamples.map((s) => subsampleExportRow(s, prefs)))),
   }
   const total =
     items.reduce((n, it) => n + it.photos.length, 0) +

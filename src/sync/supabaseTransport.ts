@@ -11,6 +11,7 @@ import type { RemoteSpecimen } from './pull'
 import type { RemoteMaterialEntity, SpecimenTransport } from '../specimens/store'
 import { db } from '../db/schema'
 import { eventRow, type EventTransport, type RemoteEvent } from '../events/sync'
+import { subsampleRow, type RemoteSubsample, type SubsampleTransport } from '../subsamples/sync'
 
 function photoPath(record: LocalRecord, photo: LocalPhoto): string {
   if (photo.storagePath) return photo.storagePath
@@ -143,6 +144,52 @@ export const eventTransport: EventTransport = {
       if (data.length < PAGE_SIZE) return all
     }
   },
+}
+
+export const subsampleTransport: SubsampleTransport = {
+  async upsert(s) {
+    // Both tags must exist server-side; offline-printed or unregistered tags
+    // take the same orphan-tag path as captures.
+    const { error: tagErr } = await supabase
+      .from('tags')
+      .upsert([{ id: s.tagId }, { id: s.parentTagId }], { onConflict: 'id', ignoreDuplicates: true })
+    if (tagErr) throw classify(tagErr)
+    if (s.eventId) {
+      const e = await db.events.get(s.eventId)
+      if (e) await eventTransport.upsertEvent(e)
+    }
+    const { error } = await supabase
+      .from('material_samples')
+      .upsert(subsampleRow(s), { onConflict: 'tag_id' })
+    if (error) throw classify(error)
+  },
+
+  async fetchAll() {
+    const all: RemoteSubsample[] = []
+    for (let from = 0; ; from += PAGE_SIZE) {
+      const { data, error } = await supabase
+        .from('material_samples')
+        .select('tag_id, parent_tag_id, created_by, event_id, sample_type, preservation, remarks, collected_at, updated_at')
+        .order('tag_id')
+        .range(from, from + PAGE_SIZE - 1)
+      if (error) throw new Error(error.message)
+      all.push(...(data as RemoteSubsample[]))
+      if (data.length < PAGE_SIZE) return all
+    }
+  },
+}
+
+/** The printed format of a tag (from its batch), or null if unknown. */
+export async function fetchTagFormat(tagId: string): Promise<{ batchId: string | null; seq: number | null; format: string | null } | null> {
+  const { data, error } = await supabase
+    .from('tags')
+    .select('batch_id, seq, tag_batches (format)')
+    .eq('id', tagId)
+    .maybeSingle()
+  if (error || !data) return null
+  const batch = data.tag_batches as unknown as { format: string } | { format: string }[] | null
+  const format = Array.isArray(batch) ? (batch[0]?.format ?? null) : (batch?.format ?? null)
+  return { batchId: data.batch_id, seq: data.seq, format }
 }
 
 export const specimenTransport: SpecimenTransport = {

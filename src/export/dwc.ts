@@ -12,7 +12,7 @@
  * in otherCatalogNumbers). fieldNumber is the collector's number for the
  * event; catalogNumber is left for the museum.
  */
-import type { LocalEvent } from '../db/schema'
+import type { LocalEvent, LocalSubsample } from '../db/schema'
 import type { ExportPrefs, PhotoLicense } from '../lib/prefs'
 import { formatTagId } from '../lib/tagid'
 import type { SpecimenView } from '../specimens/view'
@@ -107,6 +107,20 @@ export const MULTIMEDIA_COLUMNS = [
   'creator',
   'license',
   'rightsHolder',
+] as const
+
+/** One row per subsample, linked to its specimen (dwc:MaterialSample). */
+export const SUBSAMPLE_COLUMNS = [
+  'materialSampleID',
+  'relationshipOfResource',
+  'materialEntityID',
+  'occurrenceID',
+  'materialSampleType',
+  'preparations',
+  'eventID',
+  'eventDate',
+  'recordedBy',
+  'materialSampleRemarks',
 ] as const
 
 type Row<C extends readonly string[]> = Record<C[number], string>
@@ -255,6 +269,25 @@ export function multimediaRows(
     license: LICENSE_URL[prefs.license],
     rightsHolder: prefs.license === 'CC0-1.0' ? '' : who,
   }))
+}
+
+export function subsampleExportRow(
+  s: LocalSubsample,
+  prefs: ExportPrefs,
+  tz: (iso: string) => number = offsetAt,
+): Row<typeof SUBSAMPLE_COLUMNS> {
+  return {
+    materialSampleID: `SpeciMap:${s.tagId}`,
+    relationshipOfResource: 'subsample of',
+    materialEntityID: `SpeciMap:${s.parentTagId}`,
+    occurrenceID: occurrenceId(s.parentTagId),
+    materialSampleType: s.sampleType,
+    preparations: s.preservation,
+    eventID: s.eventId ? eventId(s.eventId) : '',
+    eventDate: localIso(s.collectedAt, tz(s.collectedAt)).iso,
+    recordedBy: prefs.recordedBy.trim(),
+    materialSampleRemarks: s.remarks,
+  }
 }
 
 /** RFC 4180 CSV (CRLF line ends; quotes only where needed). */

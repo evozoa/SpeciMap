@@ -2,7 +2,8 @@ import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { AuthProvider } from './auth/AuthProvider'
 import AuthCallback from './auth/AuthCallback'
 import AuthPage from './auth/AuthPage'
-import CapturePage from './capture/CapturePage'
+import TagScan from './pages/TagScan'
+import SubsamplePage from './pages/SubsamplePage'
 import BatchPage from './pages/BatchPage'
 import Home from './pages/Home'
 import SpecimenPage, { RecordRedirect } from './pages/SpecimenPage'
@@ -18,7 +19,8 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Home />} />
-          <Route path="/s/:tagId" element={<CapturePage />} />
+          <Route path="/s/:tagId" element={<TagScan />} />
+          <Route path="/subsample/:tagId" element={<SubsamplePage />} />
           <Route path="/specimen/:tagId" element={<SpecimenPage />} />
           <Route path="/record/:id" element={<RecordRedirect />} />
           <Route path="/tags" element={<TagsPage />} />

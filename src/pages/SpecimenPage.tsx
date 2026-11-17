@@ -16,6 +16,7 @@ import {
   setIndividualCount,
   setSpecimenSpecies,
 } from '../specimens/store'
+import { describeSubsample } from '../subsamples/store'
 import { syncEngine } from '../sync/triggers'
 
 function Photo({ photo }: { photo: LocalPhoto }) {
@@ -339,7 +340,8 @@ export default function SpecimenPage() {
     if (!captures.length) return null
     const view = specimenView(captures, await db.specimens.get(tagId))
     const photos = await db.photos.where('recordId').anyOf(captures.map((r) => r.id)).toArray()
-    return { view, photos }
+    const subsamples = await db.subsamples.where('parentTagId').equals(tagId).sortBy('collectedAt')
+    return { view, photos, subsamples }
   }, [tagId])
 
   if (data === undefined) return null
@@ -353,7 +355,7 @@ export default function SpecimenPage() {
       </div>
     )
   }
-  const { view, photos } = data
+  const { view, photos, subsamples } = data
   const failed = view.captures.filter((r) => r.status === 'error')
   const myFirst = view.captures.find((r) => r.collectorId === userId)
 
@@ -400,6 +402,28 @@ export default function SpecimenPage() {
       />
 
       {myFirst && <InatRecordPanel record={myFirst} />}
+
+      <section className="rounded-lg bg-slate-900 p-4 text-sm">
+        <h2 className="mb-1 font-semibold">
+          Subsamples <span className="text-xs font-normal text-slate-500">({subsamples.length})</span>
+        </h2>
+        <ul>
+          {subsamples.map((s) => (
+            <li key={s.tagId} className="flex items-center justify-between border-t border-slate-800 py-2 first:border-0">
+              <Link to={`/subsample/${s.tagId}`} className="font-mono text-emerald-400 underline">
+                {formatTagId(s.tagId)}
+              </Link>
+              <span className="text-slate-400">
+                {describeSubsample(s)}
+                {s.status !== 'synced' && ' · not uploaded'}
+              </span>
+            </li>
+          ))}
+        </ul>
+        <p className="mt-1 text-xs text-slate-500">
+          To add one, scan an unused tag (e.g. on a 2 mL tube) and choose Subsample.
+        </p>
+      </section>
 
       <section className="rounded-lg bg-slate-900 p-4 text-sm">
         <h2 className="mb-1 font-semibold">
